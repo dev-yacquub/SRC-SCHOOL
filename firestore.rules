@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Production (Recommended):
+    // All reads and writes run on the Next.js server with cookie JWT RBAC and
+    // Firebase Admin SDK (FIREBASE_SERVICE_ACCOUNT_KEY / FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY),
+    // so direct browser access to Firestore should remain locked down:
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Local development ONLY (if you have NOT added a Firebase Admin Service Account key to .env yet
+    // and created Firestore in Test Mode), replace the rule above temporarily while developing:
+    // match /{document=**} {
+    //   allow read, write: if true;
+    // }
+  }
+}
+
