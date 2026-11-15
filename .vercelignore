@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.env
+.env*.local
+*firebase-adminsdk*.json
+serviceAccountKey*.json
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-shm
+prisma/*.db-wal
+

@@ -44,3 +44,5 @@ serviceAccountKey*.json
 *.tsbuildinfo
 next-env.d.ts
 
+
+.vercel
