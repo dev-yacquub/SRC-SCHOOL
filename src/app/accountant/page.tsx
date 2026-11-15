@@ -17,6 +17,7 @@ export default async function AccountantDashboard() {
       prisma.expense.aggregate({ _sum: { amountCents: true } }),
       prisma.payment.findMany({
         include: {
+          allocations: true,
           invoice: {
             include: {
               student: {
@@ -121,7 +122,12 @@ export default async function AccountantDashboard() {
                       {p.receiptNo}
                     </td>
                     <td className="py-2.5 pr-4 font-medium text-slate-900">
-                      {p.invoice.student.fullName}
+                      <p>{p.invoice.student.fullName}</p>
+                      {p.allocations.length > 0 && (
+                        <p className="text-[11px] font-normal text-indigo-600">
+                          {p.allocations.map((a) => a.itemName).join(" + ")}
+                        </p>
+                      )}
                     </td>
                     <td className="py-2.5 pr-4 text-slate-600">
                       {p.invoice.student.class.name}

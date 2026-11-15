@@ -46,12 +46,12 @@ export function StudentAccountActions({
 
   async function resetPassword() {
     const custom = window.prompt(
-      `Reset password for @${username}.\nEnter new temporary password (leave blank for default "Student123!"):`,
-      "Student123!"
+      `Reset password for @${username}.\nEnter a custom temporary password (min 8 chars) or leave blank to auto-generate a secure random password:`,
+      ""
     );
     if (custom === null) return;
-    if (custom && custom.trim().length > 0 && custom.trim().length < 6) {
-      setMessage({ type: "err", text: "Password must be at least 6 characters." });
+    if (custom.trim().length > 0 && custom.trim().length < 8) {
+      setMessage({ type: "err", text: "Password must be at least 8 characters." });
       return;
     }
 
@@ -62,7 +62,7 @@ export function StudentAccountActions({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "resetPassword",
-        newPassword: custom.trim() || "Student123!",
+        newPassword: custom.trim() || "",
       }),
     });
     const data = await res.json();

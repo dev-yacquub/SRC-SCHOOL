@@ -28,6 +28,20 @@ export async function POST(req: Request) {
       );
     }
     const d = parsed.data;
+    if (d.id) {
+      const updated = await prisma.expense.update({
+        where: { id: d.id },
+        data: {
+          title: d.title,
+          category: d.category,
+          amountCents: dollarsToCents(d.amount),
+          date: d.date ? new Date(d.date) : new Date(),
+          note: d.note || null,
+        },
+      });
+      return NextResponse.json({ expense: updated });
+    }
+
     const expense = await prisma.expense.create({
       data: {
         title: d.title,

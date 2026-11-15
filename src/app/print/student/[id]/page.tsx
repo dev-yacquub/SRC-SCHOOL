@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { getSchoolContext } from "@/lib/shell-context";
 import { PrintButton } from "@/components/ui";
+import SrcLogo from "@/components/SrcLogo";
 
 type DocTab = "all" | "id-card" | "admission-form" | "transfer-certificate";
 
@@ -90,11 +91,14 @@ export default async function PrintStudentCardAndFormPage({
       <div className="mx-auto max-w-3xl space-y-8">
         {showIdCard && (
           <div className="mx-auto w-96 overflow-hidden rounded-2xl border-2 border-indigo-700 bg-white shadow-md">
-            <div className="bg-indigo-700 px-5 py-3 text-white">
-              <p className="text-sm font-bold">{ctx.schoolName}</p>
-              <p className="text-[11px] text-indigo-100">
-                STUDENT IDENTITY CARD · {ctx.settings?.schoolPhone}
-              </p>
+            <div className="flex items-center gap-3 bg-indigo-700 px-5 py-3 text-white">
+              <SrcLogo size={36} className="shrink-0" />
+              <div>
+                <p className="text-sm font-bold">{ctx.schoolName}</p>
+                <p className="text-[11px] text-indigo-100">
+                  STUDENT IDENTITY CARD · {ctx.settings?.schoolPhone}
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-4 p-5">
               {student.photo ? (
@@ -133,6 +137,7 @@ export default async function PrintStudentCardAndFormPage({
         {showAdmission && (
           <div className="print-only-sheet rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
             <div className="border-b border-slate-200 pb-4 text-center">
+              <SrcLogo size={56} className="mx-auto mb-2" />
               <h2 className="text-xl font-bold text-slate-900">{ctx.schoolName}</h2>
               <p className="text-xs text-slate-500">
                 {ctx.settings?.schoolAddress} · {ctx.settings?.schoolPhone}
@@ -205,6 +210,7 @@ export default async function PrintStudentCardAndFormPage({
         {showTransfer && (
           <div className="print-only-sheet rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
             <div className="border-b-2 border-slate-900 pb-4 text-center">
+              <SrcLogo size={56} className="mx-auto mb-2" />
               <h2 className="text-xl font-bold text-slate-900">{ctx.schoolName}</h2>
               <p className="text-xs text-slate-500">
                 {ctx.settings?.schoolAddress} · {ctx.settings?.schoolPhone} ·{" "}

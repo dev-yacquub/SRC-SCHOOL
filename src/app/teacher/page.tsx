@@ -84,7 +84,7 @@ export default async function TeacherDashboard() {
       assignedClassIds.length > 0
         ? prisma.attendance.findMany({
           where: { classId: { in: assignedClassIds }, date: todayIso },
-          select: { classId: true, status: true },
+          select: { classId: true, shift: true, status: true },
         })
         : [],
       prisma.exam.findMany({
@@ -112,21 +112,34 @@ export default async function TeacherDashboard() {
     0
   );
 
+  type ShiftStats = { present: number; absent: number; total: number };
   const attendanceByClass = new Map<
     string,
-    { present: number; late: number; absent: number; total: number }
+    {
+      present: number;
+      absent: number;
+      total: number;
+      SHIFT_A?: ShiftStats;
+      SHIFT_B?: ShiftStats;
+    }
   >();
   for (const row of todayAttendance) {
     const cur = attendanceByClass.get(row.classId) ?? {
       present: 0,
-      late: 0,
       absent: 0,
       total: 0,
     };
     cur.total += 1;
-    if (row.status === "PRESENT") cur.present += 1;
-    else if (row.status === "LATE") cur.late += 1;
-    else if (row.status === "ABSENT") cur.absent += 1;
+    if (row.status === "ABSENT") cur.absent += 1;
+    else cur.present += 1;
+
+    const shiftKey = row.shift === "SHIFT_B" ? "SHIFT_B" : "SHIFT_A";
+    const sCur = cur[shiftKey] ?? { present: 0, absent: 0, total: 0 };
+    sCur.total += 1;
+    if (row.status === "ABSENT") sCur.absent += 1;
+    else sCur.present += 1;
+    cur[shiftKey] = sCur;
+
     attendanceByClass.set(row.classId, cur);
   }
 
@@ -288,6 +301,8 @@ export default async function TeacherDashboard() {
               {uniqueClasses.map((cls) => {
                 const count = studentCountByClass.get(cls.id) ?? 0;
                 const stats = attendanceByClass.get(cls.id);
+                const shiftA = stats?.SHIFT_A;
+                const shiftB = stats?.SHIFT_B;
                 return (
                   <div
                     key={cls.id}
@@ -297,22 +312,40 @@ export default async function TeacherDashboard() {
                       <p className="text-sm font-semibold text-slate-900">{cls.name}</p>
                       <p className="text-xs text-slate-500">{count} active students</p>
                     </div>
-                    <div className="flex items-center gap-2.5">
-                      {stats ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                          <CheckCircle2 className="h-3 w-3" />
-                          {stats.present}P · {stats.late}L · {stats.absent}A
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
-                          Pending
-                        </span>
-                      )}
+                    <div className="flex flex-wrap items-center gap-2">
                       <Link
-                        href={`/teacher/attendance?classId=${cls.id}&date=${todayIso}`}
-                        className="rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                        href={`/teacher/attendance?classId=${cls.id}&date=${todayIso}&shift=SHIFT_A`}
+                        className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition ${
+                          shiftA
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            : "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                        }`}
                       >
-                        {stats ? "Edit" : "Take Roll Call"}
+                        {shiftA ? (
+                          <>
+                            <CheckCircle2 className="h-3 w-3" />
+                            Shift A ({shiftA.present}P·{shiftA.absent}A)
+                          </>
+                        ) : (
+                          "Shift A (Pending)"
+                        )}
+                      </Link>
+                      <Link
+                        href={`/teacher/attendance?classId=${cls.id}&date=${todayIso}&shift=SHIFT_B`}
+                        className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition ${
+                          shiftB
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            : "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                        }`}
+                      >
+                        {shiftB ? (
+                          <>
+                            <CheckCircle2 className="h-3 w-3" />
+                            Shift B ({shiftB.present}P·{shiftB.absent}A)
+                          </>
+                        ) : (
+                          "Shift B (Pending)"
+                        )}
                       </Link>
                     </div>
                   </div>

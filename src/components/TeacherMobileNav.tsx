@@ -13,8 +13,8 @@ import {
 } from "lucide-react";
 
 const TABS = [
-  { href: "/teacher", label: "Home", icon: LayoutDashboard, exact: true },
   { href: "/teacher/attendance", label: "Attend", icon: ClipboardCheck, exact: false },
+  { href: "/teacher", label: "Home", icon: LayoutDashboard, exact: true },
   { href: "/teacher/marks", label: "Marks", icon: PenSquare, exact: false },
   { href: "/teacher/results", label: "Results", icon: Award, exact: false },
   { href: "/teacher/students", label: "Students", icon: Users, exact: false },

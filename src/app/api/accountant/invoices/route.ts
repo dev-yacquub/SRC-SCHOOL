@@ -6,9 +6,19 @@ import {
   calculateInvoiceStatus,
   calculateInvoiceTotals,
   dollarsToCents,
+  filterUnbilledStudentFeeItems,
   generateSequenceCode,
+  isBusFeeItem,
+  resolveStudentInvoiceItems,
 } from "@/lib/domain";
 import { logAudit } from "@/lib/audit";
+
+const VALID_INVOICE_STATUSES = new Set([
+  "UNPAID",
+  "PARTIAL",
+  "PAID",
+  "CANCELLED",
+]);
 
 export async function GET(req: Request) {
   const { error } = await requireApiRole(["ACCOUNTANT", "ADMIN"]);
@@ -16,8 +26,9 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const termId = searchParams.get("termId") ?? "";
-  const status = searchParams.get("status") ?? "";
-  const q = searchParams.get("q")?.trim().toLowerCase() ?? "";
+  const statusRaw = searchParams.get("status") ?? "";
+  const status = VALID_INVOICE_STATUSES.has(statusRaw) ? statusRaw : "";
+  const q = searchParams.get("q")?.trim().toLowerCase().slice(0, 100) ?? "";
 
   const invoices = await prisma.invoice.findMany({
     where: {
@@ -39,13 +50,20 @@ export async function GET(req: Request) {
           id: true,
           admissionNo: true,
           fullName: true,
+          usesBus: true,
+          busFeeCents: true,
           class: { select: { id: true, name: true } },
         },
       },
       term: { select: { id: true, name: true } },
-      items: true,
+      items: {
+        include: {
+          allocations: true,
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
+    take: 500,
   });
 
   return NextResponse.json({ invoices });
@@ -86,9 +104,30 @@ export async function POST(req: Request) {
       );
     }
 
-    const feeStructures = await prisma.feeStructure.findMany({
+    const allTermFeeStructures = await prisma.feeStructure.findMany({
       where: { termId: d.termId },
     });
+
+    if (d.feeStructureIds !== undefined && d.feeStructureIds.length === 0) {
+      return NextResponse.json(
+        { error: "Select at least one fee structure to invoice" },
+        { status: 400 }
+      );
+    }
+
+    const selectedFeeSet = d.feeStructureIds
+      ? new Set(d.feeStructureIds)
+      : null;
+    const feeStructures = selectedFeeSet
+      ? allTermFeeStructures.filter((f) => selectedFeeSet.has(f.id))
+      : allTermFeeStructures;
+
+    if (selectedFeeSet && feeStructures.length === 0) {
+      return NextResponse.json(
+        { error: "No matching fee structures found for the selected term" },
+        { status: 400 }
+      );
+    }
 
     const settings = await prisma.schoolSettings.findUnique({
       where: { id: "default" },
@@ -102,9 +141,25 @@ export async function POST(req: Request) {
         termId: d.termId,
         status: { not: "CANCELLED" },
       },
-      select: { studentId: true },
+      select: {
+        studentId: true,
+        items: {
+          select: {
+            feeStructureId: true,
+            name: true,
+          },
+        },
+      },
     });
-    const alreadyBilled = new Set(existingForTerm.map((i) => i.studentId));
+    const billedItemsByStudent = new Map<
+      string,
+      { feeStructureId?: string | null; name: string }[]
+    >();
+    for (const inv of existingForTerm) {
+      const list = billedItemsByStudent.get(inv.studentId) ?? [];
+      list.push(...inv.items);
+      billedItemsByStudent.set(inv.studentId, list);
+    }
 
     let createdCount = 0;
     let skippedCount = 0;
@@ -113,18 +168,31 @@ export async function POST(req: Request) {
       let seq = (await tx.invoice.count()) + 1;
 
       for (const stu of students) {
-        if (alreadyBilled.has(stu.id)) {
-          skippedCount++;
-          continue;
-        }
-
         const classItems = feeStructures.filter((f) => f.classId === stu.classId);
-        if (classItems.length === 0) {
+        const resolvedItems = resolveStudentInvoiceItems(classItems, stu, {
+          requireBusFeeStructure: Boolean(selectedFeeSet),
+        });
+        const existingStudentItems = billedItemsByStudent.get(stu.id) ?? [];
+        const applicableItems = filterUnbilledStudentFeeItems(
+          resolvedItems,
+          existingStudentItems
+        );
+        if (applicableItems.length === 0) {
           skippedCount++;
           continue;
         }
 
-        const totals = calculateInvoiceTotals(classItems, discountCents);
+        const allApplicableClassCount = allTermFeeStructures.filter(
+          (f) => f.classId === stu.classId && (stu.usesBus || !isBusFeeItem(f))
+        ).length;
+        const isSubset =
+          Boolean(selectedFeeSet) &&
+          applicableItems.length < allApplicableClassCount;
+        const invoiceTitle = isSubset
+          ? `${term.name} (${applicableItems.map((i) => i.name).join(", ")}) - ${stu.fullName}`
+          : `${term.name} Fees - ${stu.fullName}`;
+
+        const totals = calculateInvoiceTotals(applicableItems, discountCents);
         const status = calculateInvoiceStatus(totals.totalCents, 0);
 
         let invoiceNo = generateSequenceCode(prefix, year, seq);
@@ -139,7 +207,7 @@ export async function POST(req: Request) {
             invoiceNo,
             studentId: stu.id,
             termId: d.termId,
-            title: `${term.name} Fees - ${stu.fullName}`,
+            title: invoiceTitle,
             subtotalCents: totals.subtotalCents,
             discountCents: totals.discountCents,
             discountReason: d.discountReason || null,
@@ -149,13 +217,16 @@ export async function POST(req: Request) {
             dueDate: d.dueDate ? new Date(d.dueDate) : null,
             createdById: user.userId,
             items: {
-              create: classItems.map((ci) => ({
+              create: applicableItems.map((ci) => ({
+                feeStructureId: ci.feeStructureId ?? null,
                 name: ci.name,
                 amountCents: ci.amountCents,
               })),
             },
           },
         });
+        existingStudentItems.push(...applicableItems);
+        billedItemsByStudent.set(stu.id, existingStudentItems);
         createdCount++;
       }
     });
@@ -165,7 +236,12 @@ export async function POST(req: Request) {
       action: "INVOICES_GENERATED",
       entityType: "Invoice",
       entityId: d.termId,
-      details: { createdCount, skippedCount, classId: d.classId || "ALL" },
+      details: {
+        createdCount,
+        skippedCount,
+        classId: d.classId || "ALL",
+        feeStructureIds: d.feeStructureIds ?? "ALL",
+      },
     });
 
     return NextResponse.json(

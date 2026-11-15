@@ -5,12 +5,33 @@ import { timetableSlotSchema } from "@/lib/validation";
 import { detectTimetableConflict } from "@/lib/domain";
 
 export async function GET(req: Request) {
-  const { error } = await requireApiRole(["ADMIN", "TEACHER", "STUDENT"]);
-  if (error) return error;
+  const { user, error } = await requireApiRole(["ADMIN", "TEACHER", "STUDENT"]);
+  if (error || !user) return error;
 
   const { searchParams } = new URL(req.url);
-  const classId = searchParams.get("classId");
-  const teacherId = searchParams.get("teacherId");
+  let classId = searchParams.get("classId");
+  let teacherId = searchParams.get("teacherId");
+
+  if (user.role === "STUDENT") {
+    const student = await prisma.student.findUnique({
+      where: { userId: user.userId },
+      select: { classId: true },
+    });
+    if (!student) {
+      return NextResponse.json({ slots: [] });
+    }
+    classId = student.classId;
+    teacherId = null;
+  } else if (user.role === "TEACHER") {
+    const teacher = await prisma.teacher.findUnique({
+      where: { userId: user.userId },
+      select: { id: true },
+    });
+    if (!teacher) {
+      return NextResponse.json({ slots: [] });
+    }
+    teacherId = teacher.id;
+  }
 
   const slots = await prisma.timetableSlot.findMany({
     where: {
@@ -70,13 +91,15 @@ export async function POST(req: Request) {
     });
 
     const conflict = detectTimetableConflict(
-      existing.map((e) => ({
-        id: e.id,
-        classId: e.classSubject.classId,
-        teacherId: e.classSubject.teacherId,
-        dayOfWeek: e.dayOfWeek,
-        period: e.period,
-      })),
+      existing
+        .filter((e) => !d.id || e.id !== d.id)
+        .map((e) => ({
+          id: e.id,
+          classId: e.classSubject.classId,
+          teacherId: e.classSubject.teacherId,
+          dayOfWeek: e.dayOfWeek,
+          period: e.period,
+        })),
       {
         classId: cs.classId,
         teacherId: cs.teacherId,
@@ -89,8 +112,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: conflict }, { status: 409 });
     }
 
+    if (d.id) {
+      const updated = await prisma.timetableSlot.update({
+        where: { id: d.id },
+        data: {
+          classSubjectId: d.classSubjectId,
+          dayOfWeek: d.dayOfWeek,
+          period: d.period,
+          startTime: d.startTime,
+          endTime: d.endTime,
+        },
+      });
+      return NextResponse.json({ id: updated.id });
+    }
+
     const created = await prisma.timetableSlot.create({
-      data: d,
+      data: {
+        classSubjectId: d.classSubjectId,
+        dayOfWeek: d.dayOfWeek,
+        period: d.period,
+        startTime: d.startTime,
+        endTime: d.endTime,
+      },
     });
 
     return NextResponse.json({ id: created.id }, { status: 201 });

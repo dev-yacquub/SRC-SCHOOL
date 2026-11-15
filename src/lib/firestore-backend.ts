@@ -173,8 +173,20 @@ async function fetchAllFromAdmin(
     .filter((d): d is DbRecord => d !== null);
 }
 
+function assertSafeClientFallback() {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.ALLOW_FIRESTORE_WEB_SDK_FALLBACK !== "true"
+  ) {
+    throw new Error(
+      "Firebase Admin SDK credentials are required in production. Configure FIREBASE_SERVICE_ACCOUNT_KEY or FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY so Firestore rules remain locked down."
+    );
+  }
+  return getClientFirestore();
+}
+
 async function fetchAllFromClient(colName: string): Promise<DbRecord[]> {
-  const snap = await getDocs(collection(getClientFirestore(), colName));
+  const snap = await getDocs(collection(assertSafeClientFallback(), colName));
   return snap.docs
     .map((d) => mapDoc(d.id, d.data() as Record<string, unknown>))
     .filter((d): d is DbRecord => d !== null);
@@ -192,7 +204,7 @@ export async function getFirestoreDocById(
       if (!snap.exists) return null;
       return mapDoc(snap.id, snap.data() as Record<string, unknown>);
     }
-    const snap = await getDoc(doc(getClientFirestore(), colName, id));
+    const snap = await getDoc(doc(assertSafeClientFallback(), colName, id));
     if (!snap.exists()) return null;
     return mapDoc(snap.id, snap.data() as Record<string, unknown>);
   } catch (err) {
@@ -244,7 +256,7 @@ export async function queryFirestoreCollection(
           }
         } else {
           const q = query(
-            collection(getClientFirestore(), colName),
+            collection(assertSafeClientFallback(), colName),
             where(documentId(), "in", batchIds)
           );
           const snap = await getDocs(q);
@@ -274,7 +286,7 @@ export async function queryFirestoreCollection(
             }
           } else {
             const q = query(
-              collection(getClientFirestore(), colName),
+              collection(assertSafeClientFallback(), colName),
               where(pushdown.field, "in", chunk)
             );
             const snap = await getDocs(q);
@@ -306,7 +318,7 @@ export async function queryFirestoreCollection(
           .filter((d): d is DbRecord => d !== null);
       }
       const constraint: QueryConstraint = where(pushdown.field, "==", pushdown.value);
-      const snap = await getDocs(query(collection(getClientFirestore(), colName), constraint));
+      const snap = await getDocs(query(collection(assertSafeClientFallback(), colName), constraint));
       return snap.docs
         .map((d) => mapDoc(d.id, d.data() as Record<string, unknown>))
         .filter((d): d is DbRecord => d !== null);
@@ -335,7 +347,7 @@ export async function setFirestoreDoc(
       await adminDb.collection(colName).doc(id).set(payload);
       return;
     }
-    await setDoc(doc(getClientFirestore(), colName, id), payload);
+    await setDoc(doc(assertSafeClientFallback(), colName, id), payload);
   } catch (err) {
     throw wrapFirestoreError(err, `set ${colName}/${id}`);
   }
@@ -348,7 +360,7 @@ export async function deleteFirestoreDoc(colName: string, id: string): Promise<v
       await adminDb.collection(colName).doc(id).delete();
       return;
     }
-    await deleteDoc(doc(getClientFirestore(), colName, id));
+    await deleteDoc(doc(assertSafeClientFallback(), colName, id));
   } catch (err) {
     throw wrapFirestoreError(err, `delete ${colName}/${id}`);
   }
@@ -372,7 +384,7 @@ export async function commitFirestoreBatch(ops: BatchOperation[]): Promise<void>
         }
         await batch.commit();
       } else {
-        const clientDb = getClientFirestore();
+        const clientDb = assertSafeClientFallback();
         const batch = writeBatch(clientDb);
         for (const op of chunk) {
           const ref = doc(clientDb, op.col, op.id);

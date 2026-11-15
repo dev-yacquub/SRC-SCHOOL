@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { signEdgeSession, verifyEdgeSession } from "../src/lib/jwt-edge";
+import {
+  MAX_SESSION_AGE_MS,
+  signEdgeSession,
+  verifyEdgeSession,
+} from "../src/lib/jwt-edge";
 import { canAccessPath } from "../src/lib/role-routes";
+import {
+  changePasswordSchema,
+  photoSchema,
+  updateInvoiceSchema,
+} from "../src/lib/validation";
 
 describe("Edge session JWT", () => {
   it("signs and verifies a valid session token", async () => {
@@ -9,11 +18,14 @@ describe("Edge session JWT", () => {
       username: "admin",
       fullName: "Admin User",
       role: "ADMIN",
+      mustChangePassword: true,
     });
     const session = await verifyEdgeSession(token);
     expect(session).not.toBeNull();
     expect(session?.userId).toBe("u_1");
     expect(session?.role).toBe("ADMIN");
+    expect(session?.mustChangePassword).toBe(true);
+    expect(typeof session?.sessionStartedAt).toBe("number");
   });
 
   it("rejects tampered tokens", async () => {
@@ -25,6 +37,75 @@ describe("Edge session JWT", () => {
     });
     const tampered = `${token.slice(0, -4)}xxxx`;
     expect(await verifyEdgeSession(tampered)).toBeNull();
+  });
+
+  it("rejects tokens exceeding absolute session lifetime", async () => {
+    const expiredStart = Date.now() - MAX_SESSION_AGE_MS - 5000;
+    const token = await signEdgeSession({
+      userId: "u_1",
+      username: "admin",
+      fullName: "Admin User",
+      role: "ADMIN",
+      sessionStartedAt: expiredStart,
+    });
+    expect(await verifyEdgeSession(token)).toBeNull();
+  });
+
+  it("refuses known weak fallback AUTH_SECRET", async () => {
+    const prev = process.env.AUTH_SECRET;
+    process.env.AUTH_SECRET =
+      "dev-school-management-secret-change-in-production-2026";
+    try {
+      await expect(
+        signEdgeSession({
+          userId: "u_1",
+          username: "admin",
+          fullName: "Admin User",
+          role: "ADMIN",
+        })
+      ).rejects.toThrow(/Insecure AUTH_SECRET/);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.AUTH_SECRET;
+      } else {
+        process.env.AUTH_SECRET = prev;
+      }
+    }
+  });
+});
+
+describe("Security validation schemas", () => {
+  it("allows base64 raster data URLs and blocks external/SVG photo URLs", () => {
+    expect(
+      photoSchema.safeParse("data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==").success
+    ).toBe(true);
+    expect(photoSchema.safeParse("").success).toBe(true);
+    expect(
+      photoSchema.safeParse("https://attacker.example/pixel.png").success
+    ).toBe(false);
+    expect(
+      photoSchema.safeParse("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=").success
+    ).toBe(false);
+  });
+
+  it("enforces minimum 8-character passwords and invoice discount bounds", () => {
+    expect(
+      changePasswordSchema.safeParse({
+        currentPassword: "old",
+        newPassword: "short",
+      }).success
+    ).toBe(false);
+    expect(
+      changePasswordSchema.safeParse({
+        currentPassword: "old",
+        newPassword: "StrongPassword1!",
+      }).success
+    ).toBe(true);
+    expect(
+      updateInvoiceSchema.safeParse({
+        discountAmount: -10,
+      }).success
+    ).toBe(false);
   });
 });
 

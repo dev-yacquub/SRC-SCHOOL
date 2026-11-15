@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Card, PageHeader } from "@/components/ui";
 import { DAYS_OF_WEEK } from "@/lib/domain";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 
 type Slot = {
   id: string;
@@ -33,6 +33,7 @@ export default function AdminTimetablePage() {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
   const [classSubjectId, setClassSubjectId] = useState("");
   const [dayOfWeek, setDayOfWeek] = useState("6");
   const [period, setPeriod] = useState("1");
@@ -66,13 +67,15 @@ export default function AdminTimetablePage() {
   useEffect(() => {
     if (selectedClassId) {
       loadSlots(selectedClassId);
-      const firstForClass = classSubjects.find((cs) => cs.class.id === selectedClassId);
+      const firstForClass = classSubjects.find(
+        (cs) => cs.class?.id === selectedClassId
+      );
       setClassSubjectId(firstForClass?.id ?? "");
     }
   }, [selectedClassId, classSubjects]);
 
   const classAssignments = classSubjects.filter(
-    (cs) => cs.class.id === selectedClassId
+    (cs) => cs.class?.id === selectedClassId && cs.subject && cs.teacher
   );
 
   async function handleAddSlot(e: React.FormEvent) {
@@ -82,6 +85,7 @@ export default function AdminTimetablePage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        ...(editingSlotId ? { id: editingSlotId } : {}),
         classSubjectId,
         dayOfWeek: Number(dayOfWeek),
         period: Number(period),
@@ -94,12 +98,18 @@ export default function AdminTimetablePage() {
       setMsg({ type: "err", text: data.error ?? "Conflict or invalid slot" });
       return;
     }
-    setMsg({ type: "ok", text: "Timetable period added." });
+    setMsg({
+      type: "ok",
+      text: editingSlotId ? "Timetable period updated." : "Timetable period added.",
+    });
+    setEditingSlotId(null);
     loadSlots(selectedClassId);
   }
 
   async function handleDelete(id: string) {
+    if (!window.confirm("Remove this timetable period slot?")) return;
     await fetch(`/api/admin/timetable?id=${id}`, { method: "DELETE" });
+    if (editingSlotId === id) setEditingSlotId(null);
     loadSlots(selectedClassId);
   }
 
@@ -195,12 +205,23 @@ export default function AdminTimetablePage() {
                 className="w-full rounded-lg border border-slate-300 px-2 py-2 text-xs"
               />
             </div>
-            <button
-              type="submit"
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-            >
-              Add Slot
-            </button>
+            <div className="flex gap-1.5">
+              <button
+                type="submit"
+                className="flex-1 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              >
+                {editingSlotId ? "Update Slot" : "Add Slot"}
+              </button>
+              {editingSlotId && (
+                <button
+                  type="button"
+                  onClick={() => setEditingSlotId(null)}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
           </form>
         )}
       </Card>
@@ -232,18 +253,38 @@ export default function AdminTimetablePage() {
                           <div className="rounded-lg border border-indigo-100 bg-indigo-50/70 p-2">
                             <div className="flex items-start justify-between gap-1">
                               <span className="font-semibold text-indigo-950">
-                                {slot.classSubject.subject.name}
+                                {slot.classSubject?.subject?.name ?? "—"}
                               </span>
-                              <button
-                                type="button"
-                                onClick={() => handleDelete(slot.id)}
-                                className="text-slate-400 hover:text-rose-600"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingSlotId(slot.id);
+                                    if (slot.classSubject?.id) {
+                                      setClassSubjectId(slot.classSubject.id);
+                                    }
+                                    setDayOfWeek(String(slot.dayOfWeek));
+                                    setPeriod(String(slot.period));
+                                    setStartTime(slot.startTime);
+                                    setEndTime(slot.endTime);
+                                  }}
+                                  className="text-slate-400 hover:text-indigo-600"
+                                  title="Edit slot"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(slot.id)}
+                                  className="text-slate-400 hover:text-rose-600"
+                                  title="Delete slot"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             </div>
                             <p className="mt-0.5 text-[11px] text-indigo-800">
-                              {slot.classSubject.teacher.fullName}
+                              {slot.classSubject?.teacher?.fullName ?? "—"}
                             </p>
                             <p className="mt-0.5 text-[10px] text-slate-500 tabular-nums">
                               {slot.startTime}–{slot.endTime}

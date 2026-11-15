@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { getSchoolContext } from "@/lib/shell-context";
 import { PrintButton } from "@/components/ui";
+import SrcLogo from "@/components/SrcLogo";
 
 export default async function PrintClassIdCardsPage({
   searchParams,
@@ -78,11 +79,14 @@ export default async function PrintClassIdCardsPage({
               key={student.id}
               className="break-inside-avoid overflow-hidden rounded-2xl border-2 border-indigo-700 bg-white shadow-sm"
             >
-              <div className="bg-indigo-700 px-4 py-2.5 text-white">
-                <p className="text-sm font-bold">{ctx.schoolName}</p>
-                <p className="text-[10px] text-indigo-100">
-                  STUDENT IDENTITY CARD · {ctx.settings?.schoolPhone}
-                </p>
+              <div className="flex items-center gap-2.5 bg-indigo-700 px-4 py-2.5 text-white">
+                <SrcLogo size={32} className="shrink-0" />
+                <div>
+                  <p className="text-sm font-bold">{ctx.schoolName}</p>
+                  <p className="text-[10px] text-indigo-100">
+                    STUDENT IDENTITY CARD · {ctx.settings?.schoolPhone}
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-4 p-4">
                 {student.photo ? (

@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { hashPassword, SESSION_COOKIE_NAME, signSessionToken } from "@/lib/auth";
+import {
+  SESSION_COOKIE_NAME,
+  checkRateLimit,
+  getClientIp,
+  getSessionCookieOptions,
+  hashPassword,
+  recordFailedAttempt,
+  signSessionToken,
+} from "@/lib/auth";
 import { initialSetupSchema } from "@/lib/validation";
 
 const STANDARD_GRADE_SCALE = [
@@ -20,12 +28,27 @@ export async function GET() {
 
   return NextResponse.json({
     needsSetup: userCount === 0,
+    requiresSetupToken: Boolean(process.env.SETUP_TOKEN?.trim()),
     schoolName: settings?.schoolName ?? "",
   });
 }
 
 export async function POST(req: Request) {
   try {
+    const ip = getClientIp(req);
+    const rate = checkRateLimit(`setup:${ip}`, 5, 15 * 60 * 1000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        {
+          error: `Too many setup attempts. Try again in ${rate.retryAfterSeconds} seconds.`,
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        }
+      );
+    }
+
     const existingUsers = await prisma.user.count();
     if (existingUsers > 0) {
       return NextResponse.json(
@@ -35,6 +58,21 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
+
+    const requiredSetupToken = process.env.SETUP_TOKEN?.trim();
+    if (requiredSetupToken) {
+      const providedToken =
+        req.headers.get("x-setup-token")?.trim() ||
+        (typeof body?.setupToken === "string" ? body.setupToken.trim() : "");
+      if (providedToken !== requiredSetupToken) {
+        recordFailedAttempt(`setup:${ip}`, 5, 15 * 60 * 1000);
+        return NextResponse.json(
+          { error: "Invalid or missing SETUP_TOKEN." },
+          { status: 403 }
+        );
+      }
+    }
+
     const parsed = initialSetupSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
@@ -47,8 +85,15 @@ export async function POST(req: Request) {
     const passwordHash = await hashPassword(d.password);
     const username = d.username.toLowerCase();
     const email = d.email ? d.email.toLowerCase() : null;
+    const initializedAt = new Date();
 
     const admin = await prisma.$transaction(async (tx) => {
+      // Re-verify inside the serialized transaction to prevent concurrent double-setup
+      const countInsideTx = await tx.user.count();
+      if (countInsideTx > 0) {
+        throw new Error("ALREADY_INITIALIZED");
+      }
+
       await tx.schoolSettings.upsert({
         where: { id: "default" },
         update: {
@@ -88,7 +133,7 @@ export async function POST(req: Request) {
           passwordHash,
           role: "ADMIN",
           mustChangePassword: false,
-          lastLoginAt: new Date(),
+          lastLoginAt: initializedAt,
         },
       });
 
@@ -110,6 +155,8 @@ export async function POST(req: Request) {
       username: admin.username,
       fullName: admin.fullName,
       role: "ADMIN",
+      mustChangePassword: false,
+      sessionStartedAt: initializedAt.getTime(),
     });
 
     const res = NextResponse.json(
@@ -120,16 +167,16 @@ export async function POST(req: Request) {
       { status: 201 }
     );
 
-    res.cookies.set(SESSION_COOKIE_NAME, token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 12,
-    });
+    res.cookies.set(SESSION_COOKIE_NAME, token, getSessionCookieOptions());
 
     return res;
   } catch (err) {
+    if (err instanceof Error && err.message === "ALREADY_INITIALIZED") {
+      return NextResponse.json(
+        { error: "System setup has already been completed." },
+        { status: 403 }
+      );
+    }
     console.error("Initial setup error:", err);
     return NextResponse.json(
       { error: "Failed to initialize school system" },

@@ -25,13 +25,14 @@ type PreviewResponse = {
 
 type ImportResponse = {
   importedCount: number;
-  defaultPassword: string;
+  defaultPassword?: string;
   createdAccounts: {
     id: string;
     admissionNo: string;
     fullName: string;
     className: string;
     username: string;
+    temporaryPassword?: string;
   }[];
   errors: string[];
 };
@@ -219,7 +220,7 @@ export default function ImportStudentsPage() {
       {result && (
         <Card
           title={`Imported ${result.importedCount} Students`}
-          subtitle={`Temporary password for all imported student accounts: ${result.defaultPassword}`}
+          subtitle="Each imported student has been assigned a unique temporary password (must be changed on first login)"
           action={
             <div className="no-print flex gap-2">
               <button
@@ -277,7 +278,7 @@ export default function ImportStudentsPage() {
                       {acc.username}
                     </td>
                     <td className="py-2 font-mono text-xs text-slate-700">
-                      {result.defaultPassword}
+                      {acc.temporaryPassword ?? result.defaultPassword}
                     </td>
                   </tr>
                 ))}

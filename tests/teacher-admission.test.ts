@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canAccessPath, ROLE_NAV } from "@/lib/role-routes";
+import { canAccessPath, ROLE_HOME, ROLE_NAV } from "@/lib/role-routes";
 import {
   marksBatchSchema,
   promoteStudentsSchema,
@@ -8,6 +8,11 @@ import {
 } from "@/lib/validation";
 
 describe("Admission & Teacher route RBAC", () => {
+  it("routes teachers to Attendance as their home page and first navigation tab", () => {
+    expect(ROLE_HOME.TEACHER).toBe("/teacher/attendance");
+    expect(ROLE_NAV.TEACHER[0]?.href).toBe("/teacher/attendance");
+  });
+
   it("exposes Class Results & Teaching Timetable links to Admin and Teacher", () => {
     expect(ROLE_NAV.TEACHER.some((n) => n.href === "/teacher/results")).toBe(true);
     expect(ROLE_NAV.ADMIN.some((n) => n.href === "/teacher/results")).toBe(true);

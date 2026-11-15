@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireApiRole } from "@/lib/auth";
 import { feeStructureSchema } from "@/lib/validation";
-import { dollarsToCents } from "@/lib/domain";
+import { dollarsToCents, isBusFeeItem } from "@/lib/domain";
 
 export async function GET() {
   const { error } = await requireApiRole(["ACCOUNTANT", "ADMIN"]);
@@ -39,6 +39,22 @@ export async function POST(req: Request) {
 
     const d = parsed.data;
     const amountCents = dollarsToCents(d.amount);
+    const isBusFee = isBusFeeItem({ name: d.name, isBusFee: d.isBusFee });
+
+    if (d.id) {
+      const updated = await prisma.feeStructure.update({
+        where: { id: d.id },
+        data: {
+          classId: d.classId,
+          termId: d.termId,
+          name: d.name,
+          amountCents,
+          isBusFee,
+        },
+      });
+      return NextResponse.json({ structure: updated });
+    }
+
     const saved = await prisma.feeStructure.upsert({
       where: {
         classId_termId_name: {
@@ -47,12 +63,13 @@ export async function POST(req: Request) {
           name: d.name,
         },
       },
-      update: { amountCents },
+      update: { amountCents, isBusFee },
       create: {
         classId: d.classId,
         termId: d.termId,
         name: d.name,
         amountCents,
+        isBusFee,
       },
     });
 
@@ -75,7 +92,17 @@ export async function DELETE(req: Request) {
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
-  await prisma.feeStructure.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    await tx.invoiceItem.updateMany({
+      where: { feeStructureId: id },
+      data: { feeStructureId: null },
+    });
+    await tx.paymentAllocation.updateMany({
+      where: { feeStructureId: id },
+      data: { feeStructureId: null },
+    });
+    await tx.feeStructure.delete({ where: { id } });
+  });
   return NextResponse.json({ ok: true });
 }
 

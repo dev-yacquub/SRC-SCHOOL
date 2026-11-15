@@ -333,7 +333,7 @@ export default async function TeacherStudentsPage({
                                 : "bg-rose-100 text-rose-700"
                                 }`}
                             >
-                              {att.ratePercent}% ({att.present + att.late}/{att.total})
+                              {att.ratePercent}% ({att.present}/{att.total})
                             </span>
                           )}
                         </td>

@@ -55,17 +55,19 @@ export async function GET() {
 
   const completion = exams.map((exam) => ({
     examId: exam.id,
-    items: classSubjects.map((cs) => {
-      const expected = countMap.get(cs.classId) ?? 0;
-      const entered = markMap.get(`${exam.id}:${cs.classId}:${cs.subjectId}`) ?? 0;
-      return {
-        className: cs.class.name,
-        subjectName: cs.subject.name,
-        teacherName: cs.teacher.fullName,
-        expected,
-        entered,
-      };
-    }),
+    items: classSubjects
+      .filter((cs) => cs.class && cs.subject && cs.teacher)
+      .map((cs) => {
+        const expected = countMap.get(cs.classId) ?? 0;
+        const entered = markMap.get(`${exam.id}:${cs.classId}:${cs.subjectId}`) ?? 0;
+        return {
+          className: cs.class?.name ?? "—",
+          subjectName: cs.subject?.name ?? "—",
+          teacherName: cs.teacher?.fullName ?? "—",
+          expected,
+          entered,
+        };
+      }),
   }));
 
   return NextResponse.json({
@@ -85,13 +87,28 @@ export async function POST(req: Request) {
     const body = await req.json();
     const action = body?.action as string | undefined;
 
-    if (action === "createExam") {
+    if (action === "createExam" || action === "updateExam") {
+      const examId = body.data?.id ? String(body.data.id) : undefined;
       const parsed = examCreateSchema.safeParse(body.data);
       if (!parsed.success) {
         return NextResponse.json(
           { error: parsed.error.issues[0]?.message ?? "Invalid exam" },
           { status: 400 }
         );
+      }
+      if (examId) {
+        const updated = await prisma.exam.update({
+          where: { id: examId },
+          data: parsed.data,
+        });
+        await logAudit({
+          userId: user.userId,
+          action: "EXAM_UPDATED",
+          entityType: "Exam",
+          entityId: updated.id,
+          details: parsed.data,
+        });
+        return NextResponse.json({ id: updated.id });
       }
       const exam = await prisma.exam.create({ data: parsed.data });
       await logAudit({
@@ -143,6 +160,13 @@ export async function POST(req: Request) {
         await tx.gradeScale.deleteMany();
         await tx.gradeScale.createMany({ data: parsed.data.scales });
       });
+      await logAudit({
+        userId: user.userId,
+        action: "GRADE_SCALE_UPDATED",
+        entityType: "GradeScale",
+        entityId: "default",
+        details: { count: parsed.data.scales.length },
+      });
       return NextResponse.json({ ok: true });
     }
 
@@ -150,6 +174,38 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error("Exams POST error:", err);
     return NextResponse.json({ error: "Failed to save exam changes" }, { status: 400 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  const { user, error } = await requireApiRole(["ADMIN"]);
+  if (error || !user) return error;
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) {
+      return NextResponse.json({ error: "Missing exam id" }, { status: 400 });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.mark.deleteMany({ where: { examId: id } });
+      await tx.reportRemark.deleteMany({ where: { examId: id } });
+      await tx.examAttendance.deleteMany({ where: { examId: id } });
+      await tx.exam.delete({ where: { id } });
+    });
+
+    await logAudit({
+      userId: user.userId,
+      action: "EXAM_DELETED",
+      entityType: "Exam",
+      entityId: id,
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("Exam DELETE error:", err);
+    return NextResponse.json({ error: "Failed to delete exam" }, { status: 500 });
   }
 }
 

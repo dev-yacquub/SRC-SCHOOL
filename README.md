@@ -13,8 +13,7 @@ Simple, role-based web application for a single school with **5 roles only**:
 ## Quick Start (Firebase Cloud Firestore)
 
 1. In [Firebase Console](https://console.firebase.google.com/) for project `src-tech-school`, ensure **Build -> Firestore Database** is created.
-2. **Recommended (Production Security):** Generate a Service Account key (**Project Settings -> Service Accounts -> Generate New Private Key**) and add either `FIREBASE_SERVICE_ACCOUNT_KEY` or `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY` to `.env`, keeping `firestore.rules` locked down (`allow read, write: if false;` for direct client access).
-   *(For quick local development without a service account key, Firestore created in Test Mode also works via the Firebase Web SDK.)*
+2. **Production & Local Security:** Generate a Service Account key (**Project Settings -> Service Accounts -> Generate New Private Key**) and add either `FIREBASE_SERVICE_ACCOUNT_KEY` or `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY` to `.env`, keeping `firestore.rules` locked down (`allow read, write: if false;` for direct client access). Never enable public `allow read, write: if true;` rules in production.
 3. Populate Cloud Firestore:
 
 ```bash

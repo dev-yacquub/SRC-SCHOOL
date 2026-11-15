@@ -8,7 +8,7 @@ export async function getSchoolContext() {
   ]);
 
   const schoolName =
-    settings?.schoolName || process.env.SCHOOL_NAME || "School Management System";
+    settings?.schoolName || process.env.SCHOOL_NAME || "SRC Tech School";
   const currencySymbol = settings?.currencySymbol ?? "$";
   const academicLabel = currentYear
     ? `${currentYear.name}${currentTerm ? ` · ${currentTerm.name}` : ""}`

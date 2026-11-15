@@ -30,7 +30,6 @@ enum StudentStatus {
 enum AttendanceStatus {
   PRESENT
   ABSENT
-  LATE
 }
 
 enum InvoiceStatus {
@@ -50,7 +49,7 @@ enum PaymentMethod {
 
 model SchoolSettings {
   id              String   @id @default("default")
-  schoolName      String   @default("Al-Noor Academy")
+  schoolName      String   @default("SRC Tech School")
   schoolAddress   String   @default("Mogadishu, Somalia")
   schoolPhone     String   @default("+252 61 000 0000")
   schoolEmail     String   @default("info@alnoor.edu")
@@ -125,13 +124,14 @@ model SchoolClass {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  academicYear  AcademicYear   @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
-  students      Student[]
-  enrollments   Enrollment[]
-  classSubjects ClassSubject[]
-  attendance    Attendance[]
-  marks         Mark[]
-  feeStructures FeeStructure[]
+  academicYear   AcademicYear     @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  students       Student[]
+  enrollments    Enrollment[]
+  classSubjects  ClassSubject[]
+  attendance     Attendance[]
+  examAttendance ExamAttendance[]
+  marks          Mark[]
+  feeStructures  FeeStructure[]
 
   @@unique([academicYearId, name])
   @@map("classes")
@@ -144,8 +144,9 @@ model Subject {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  classSubjects ClassSubject[]
-  marks         Mark[]
+  classSubjects  ClassSubject[]
+  examAttendance ExamAttendance[]
+  marks          Mark[]
 
   @@map("subjects")
 }
@@ -177,6 +178,8 @@ model Student {
   guardianPhone   String
   address         String?
   previousSchool  String?
+  usesBus         Boolean       @default(false)
+  busFeeCents     Int?
   classId         String
   status          StudentStatus @default(ACTIVE)
   statusReason    String?
@@ -185,13 +188,14 @@ model Student {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  class         SchoolClass    @relation(fields: [classId], references: [id])
-  enrollments   Enrollment[]
-  attendance    Attendance[]
-  marks         Mark[]
-  reportRemarks ReportRemark[]
-  invoices      Invoice[]
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  class          SchoolClass      @relation(fields: [classId], references: [id])
+  enrollments    Enrollment[]
+  attendance     Attendance[]
+  examAttendance ExamAttendance[]
+  marks          Mark[]
+  reportRemarks  ReportRemark[]
+  invoices       Invoice[]
 
   @@index([classId])
   @@index([status])
@@ -252,6 +256,7 @@ model Attendance {
   studentId  String
   classId    String
   date       String // YYYY-MM-DD
+  shift      String           @default("SHIFT_A") // SHIFT_A | SHIFT_B
   status     AttendanceStatus
   note       String?
   markedById String
@@ -261,9 +266,34 @@ model Attendance {
   student Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
   class   SchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
 
-  @@unique([studentId, date])
-  @@index([classId, date])
+  @@unique([studentId, date, shift])
+  @@index([classId, date, shift])
   @@map("attendance")
+}
+
+model ExamAttendance {
+  id         String           @id @default(cuid())
+  examId     String?
+  examKey    String           @default("")
+  classId    String
+  subjectId  String
+  studentId  String
+  date       String // YYYY-MM-DD
+  status     AttendanceStatus
+  note       String?
+  markedById String
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  exam    Exam?       @relation(fields: [examId], references: [id], onDelete: Cascade)
+  class   SchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subject Subject     @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  student Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, date, examKey, subjectId])
+  @@index([classId, date, examKey])
+  @@index([subjectId, date])
+  @@map("exam_attendance")
 }
 
 model Exam {
@@ -276,9 +306,10 @@ model Exam {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  term          Term           @relation(fields: [termId], references: [id], onDelete: Cascade)
-  marks         Mark[]
-  reportRemarks ReportRemark[]
+  term           Term             @relation(fields: [termId], references: [id], onDelete: Cascade)
+  marks          Mark[]
+  reportRemarks  ReportRemark[]
+  examAttendance ExamAttendance[]
 
   @@unique([termId, name])
   @@map("exams")
@@ -340,11 +371,14 @@ model FeeStructure {
   termId      String
   name        String
   amountCents Int
+  isBusFee    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  class SchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
-  term  Term        @relation(fields: [termId], references: [id], onDelete: Cascade)
+  class              SchoolClass         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  term               Term                @relation(fields: [termId], references: [id], onDelete: Cascade)
+  invoiceItems       InvoiceItem[]
+  paymentAllocations PaymentAllocation[]
 
   @@unique([classId, termId, name])
   @@map("fee_structures")
@@ -379,13 +413,18 @@ model Invoice {
 }
 
 model InvoiceItem {
-  id          String @id @default(cuid())
-  invoiceId   String
-  name        String
-  amountCents Int
+  id             String  @id @default(cuid())
+  invoiceId      String
+  feeStructureId String?
+  name           String
+  amountCents    Int
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice      Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  feeStructure FeeStructure?       @relation(fields: [feeStructureId], references: [id], onDelete: SetNull)
+  allocations  PaymentAllocation[]
 
+  @@index([invoiceId])
+  @@index([feeStructureId])
   @@map("invoice_items")
 }
 
@@ -401,11 +440,30 @@ model Payment {
   receivedById String
   createdAt    DateTime      @default(now())
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice     Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  allocations PaymentAllocation[]
 
   @@index([invoiceId])
   @@index([paidAt])
   @@map("payments")
+}
+
+model PaymentAllocation {
+  id             String  @id @default(cuid())
+  paymentId      String
+  invoiceItemId  String?
+  feeStructureId String?
+  itemName       String
+  amountCents    Int
+
+  payment      Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoiceItem  InvoiceItem?  @relation(fields: [invoiceItemId], references: [id], onDelete: SetNull)
+  feeStructure FeeStructure? @relation(fields: [feeStructureId], references: [id], onDelete: SetNull)
+
+  @@index([paymentId])
+  @@index([invoiceItemId])
+  @@index([feeStructureId])
+  @@map("payment_allocations")
 }
 
 model Expense {

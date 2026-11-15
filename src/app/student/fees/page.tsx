@@ -3,7 +3,11 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { getSchoolContext } from "@/lib/shell-context";
-import { formatCurrency, PAYMENT_METHOD_LABELS } from "@/lib/domain";
+import {
+  computeInvoiceItemBalances,
+  formatCurrency,
+  PAYMENT_METHOD_LABELS,
+} from "@/lib/domain";
 import { Card, PageHeader, StatCard, StatusBadge } from "@/components/ui";
 
 export default async function StudentFeesPage() {
@@ -22,8 +26,13 @@ export default async function StudentFeesPage() {
     where: { studentId: student.id, status: { not: "CANCELLED" } },
     include: {
       term: { select: { name: true } },
-      items: true,
-      payments: { orderBy: { paidAt: "desc" } },
+      items: {
+        include: { allocations: true },
+      },
+      payments: {
+        include: { allocations: true },
+        orderBy: { paidAt: "desc" },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -63,7 +72,9 @@ export default async function StudentFeesPage() {
             <p className="text-sm text-slate-500">No invoices issued yet.</p>
           </Card>
         ) : (
-          invoices.map((inv) => (
+          invoices.map((inv) => {
+            const itemBalances = computeInvoiceItemBalances(inv);
+            return (
             <Card
               key={inv.id}
               title={`${inv.invoiceNo} — ${inv.term.name}`}
@@ -98,6 +109,41 @@ export default async function StudentFeesPage() {
                 </div>
               </div>
 
+              {itemBalances.items.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="mb-2 text-xs font-semibold text-slate-500 uppercase">
+                    Fee Items
+                  </h4>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {itemBalances.items.map((it) => (
+                      <div
+                        key={it.id}
+                        className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs"
+                      >
+                        <span className="font-medium text-slate-800">
+                          {it.name}
+                        </span>
+                        <span className="tabular-nums">
+                          <strong className="text-slate-900">
+                            {formatCurrency(it.amountCents, ctx.currencySymbol)}
+                          </strong>
+                          {it.allocatedPaidCents > 0 && (
+                            <span className="ml-1.5 text-emerald-700">
+                              (Paid{" "}
+                              {formatCurrency(
+                                it.allocatedPaidCents,
+                                ctx.currencySymbol
+                              )}
+                              )
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {inv.payments.length > 0 && (
                 <div>
                   <h4 className="mb-2 text-xs font-semibold text-slate-500 uppercase">
@@ -117,6 +163,17 @@ export default async function StudentFeesPage() {
                           <span className="text-xs text-slate-500">
                             {new Date(p.paidAt).toLocaleDateString()}
                           </span>
+                          {p.allocations.length > 0 && (
+                            <p className="mt-0.5 text-xs text-indigo-700">
+                              Paid for:{" "}
+                              {p.allocations
+                                .map(
+                                  (a) =>
+                                    `${a.itemName} (${formatCurrency(a.amountCents, ctx.currencySymbol)})`
+                                )
+                                .join(" + ")}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="font-semibold text-emerald-700 tabular-nums">
@@ -135,7 +192,8 @@ export default async function StudentFeesPage() {
                 </div>
               )}
             </Card>
-          ))
+            );
+          })
         )}
       </div>
     </div>

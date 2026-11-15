@@ -38,6 +38,7 @@ async function clearSqlite() {
     // Delete child tables before parent tables to satisfy SQLite foreign keys
     await sqlite.$transaction([
       sqlite.auditLog.deleteMany(),
+      sqlite.paymentAllocation.deleteMany(),
       sqlite.payment.deleteMany(),
       sqlite.invoiceItem.deleteMany(),
       sqlite.invoice.deleteMany(),
@@ -45,6 +46,7 @@ async function clearSqlite() {
       sqlite.expense.deleteMany(),
       sqlite.reportRemark.deleteMany(),
       sqlite.mark.deleteMany(),
+      sqlite.examAttendance.deleteMany(),
       sqlite.exam.deleteMany(),
       sqlite.gradeScale.deleteMany(),
       sqlite.attendance.deleteMany(),

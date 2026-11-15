@@ -3,15 +3,25 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { requireApiRole } from "@/lib/auth";
 
+const VALID_STATUSES = new Set([
+  "ACTIVE",
+  "TRANSFERRED",
+  "WITHDRAWN",
+  "GRADUATED",
+]);
+const VALID_GENDERS = new Set(["MALE", "FEMALE"]);
+
 export async function GET(req: Request) {
   const { error } = await requireApiRole(["ADMISSION", "ADMIN", "ACCOUNTANT"]);
   if (error) return error;
 
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q")?.trim().toLowerCase() ?? "";
+  const q = searchParams.get("q")?.trim().toLowerCase().slice(0, 100) ?? "";
   const classId = searchParams.get("classId") ?? "";
-  const status = searchParams.get("status") ?? "";
-  const gender = searchParams.get("gender") ?? "";
+  const statusRaw = searchParams.get("status") ?? "";
+  const genderRaw = searchParams.get("gender") ?? "";
+  const status = VALID_STATUSES.has(statusRaw) ? statusRaw : "";
+  const gender = VALID_GENDERS.has(genderRaw) ? genderRaw : "";
 
   const students = await prisma.student.findMany({
     where: {
@@ -34,6 +44,7 @@ export async function GET(req: Request) {
       user: { select: { username: true, isActive: true } },
     },
     orderBy: [{ class: { level: "asc" } }, { fullName: "asc" }],
+    take: 1000,
   });
 
   const workbook = new ExcelJS.Workbook();
@@ -50,6 +61,7 @@ export async function GET(req: Request) {
     { header: "Guardian Phone", key: "guardianPhone", width: 18 },
     { header: "Address", key: "address", width: 24 },
     { header: "Previous School", key: "previousSchool", width: 20 },
+    { header: "School Bus", key: "usesBus", width: 12 },
     { header: "Status", key: "status", width: 14 },
     { header: "Admission Date", key: "admissionDate", width: 15 },
     { header: "Login Active", key: "loginActive", width: 12 },
@@ -70,6 +82,7 @@ export async function GET(req: Request) {
       guardianPhone: s.guardianPhone,
       address: s.address ?? "",
       previousSchool: s.previousSchool ?? "",
+      usesBus: s.usesBus ? "Yes" : "No",
       status: s.status,
       admissionDate: s.admissionDate.toISOString().slice(0, 10),
       loginActive: s.user.isActive ? "Yes" : "No",

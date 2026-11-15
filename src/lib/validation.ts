@@ -1,15 +1,30 @@
 import { z } from "zod";
 
+const MAX_PHOTO_DATA_URL_LENGTH = 450_000; // ~330 KB binary image
+
+export const photoSchema = z
+  .string()
+  .trim()
+  .max(MAX_PHOTO_DATA_URL_LENGTH, "Photo must be under 300 KB")
+  .refine(
+    (val) =>
+      val === "" ||
+      /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=\s]+$/i.test(val),
+    "Photo must be a valid base64-encoded PNG, JPEG, WEBP, or GIF image (external URLs are not allowed)"
+  )
+  .optional()
+  .or(z.literal(""));
+
 export const loginSchema = z.object({
-  identifier: z.string().trim().min(1, "Username or email is required"),
-  password: z.string().min(1, "Password is required"),
+  identifier: z.string().trim().min(1, "Username or email is required").max(120),
+  password: z.string().min(1, "Password is required").max(200),
 });
 
 export const initialSetupSchema = z.object({
   schoolName: z.string().trim().min(2, "School name is required").max(120),
   schoolAddress: z.string().trim().max(200).optional().or(z.literal("")),
   schoolPhone: z.string().trim().max(40).optional().or(z.literal("")),
-  schoolEmail: z.string().trim().email().optional().or(z.literal("")),
+  schoolEmail: z.string().trim().email().max(120).optional().or(z.literal("")),
   currency: z.string().trim().min(2).max(10).default("USD"),
   currencySymbol: z.string().trim().min(1).max(5).default("$"),
   fullName: z.string().trim().min(2, "Admin full name is required").max(100),
@@ -19,14 +34,20 @@ export const initialSetupSchema = z.object({
     .min(3, "Username must be at least 3 characters")
     .max(40)
     .regex(/^[a-zA-Z0-9._-]+$/, "Only letters, numbers, dot, underscore, hyphen"),
-  email: z.string().trim().email().optional().or(z.literal("")),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  email: z.string().trim().email().max(120).optional().or(z.literal("")),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(200),
   includeDefaultGradeScale: z.boolean().optional().default(true),
 });
 
 export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, "Current password is required"),
-  newPassword: z.string().min(6, "New password must be at least 6 characters"),
+  currentPassword: z.string().min(1, "Current password is required").max(200),
+  newPassword: z
+    .string()
+    .min(8, "New password must be at least 8 characters")
+    .max(200),
 });
 
 export const createUserSchema = z.object({
@@ -36,20 +57,30 @@ export const createUserSchema = z.object({
     .min(3)
     .max(40)
     .regex(/^[a-zA-Z0-9._-]+$/, "Only letters, numbers, dot, underscore, hyphen"),
-  email: z.string().trim().email().optional().or(z.literal("")),
+  email: z.string().trim().email().max(120).optional().or(z.literal("")),
   fullName: z.string().trim().min(2).max(100),
   role: z.enum(["ADMIN", "ADMISSION", "TEACHER", "ACCOUNTANT"]),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(200),
   phone: z.string().trim().max(30).optional().or(z.literal("")),
   qualification: z.string().trim().max(100).optional().or(z.literal("")),
 });
 
 export const updateUserSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .min(3)
+    .max(40)
+    .regex(/^[a-zA-Z0-9._-]+$/, "Only letters, numbers, dot, underscore, hyphen")
+    .optional(),
   fullName: z.string().trim().min(2).max(100).optional(),
-  email: z.string().trim().email().optional().or(z.literal("")),
+  email: z.string().trim().email().max(120).optional().or(z.literal("")),
   role: z.enum(["ADMIN", "ADMISSION", "TEACHER", "ACCOUNTANT", "STUDENT"]).optional(),
   isActive: z.boolean().optional(),
-  resetPassword: z.string().min(6).optional().or(z.literal("")),
+  resetPassword: z.string().min(8).max(200).optional().or(z.literal("")),
   phone: z.string().trim().max(30).optional().or(z.literal("")),
   qualification: z.string().trim().max(100).optional().or(z.literal("")),
 });
@@ -87,6 +118,7 @@ export const classSubjectSchema = z.object({
 });
 
 export const timetableSlotSchema = z.object({
+  id: z.string().min(1).max(80).optional(),
   classSubjectId: z.string().min(1),
   dayOfWeek: z.coerce.number().int().min(0).max(6),
   period: z.coerce.number().int().min(1).max(10),
@@ -97,17 +129,25 @@ export const timetableSlotSchema = z.object({
 export const studentCreateSchema = z.object({
   fullName: z.string().trim().min(2).max(100),
   gender: z.enum(["MALE", "FEMALE"]),
-  dob: z.string().optional().or(z.literal("")),
-  photo: z.string().optional().or(z.literal("")),
+  dob: z.string().max(30).optional().or(z.literal("")),
+  photo: photoSchema,
   guardianName: z.string().trim().min(2).max(100),
   guardianPhone: z.string().trim().min(5).max(30),
   address: z.string().trim().max(200).optional().or(z.literal("")),
   previousSchool: z.string().trim().max(120).optional().or(z.literal("")),
-  classId: z.string().min(1),
-  admissionDate: z.string().optional().or(z.literal("")),
+  usesBus: z.boolean().optional().default(false),
+  busFee: z.coerce
+    .number()
+    .min(0, "Bus fee cannot be negative")
+    .max(100_000)
+    .optional()
+    .nullable(),
+  classId: z.string().min(1).max(80),
+  admissionDate: z.string().max(30).optional().or(z.literal("")),
 });
 
 export const studentUpdateSchema = studentCreateSchema.partial().extend({
+  admissionNo: z.string().trim().min(2).max(40).optional(),
   status: z.enum(["ACTIVE", "TRANSFERRED", "WITHDRAWN", "GRADUATED"]).optional(),
   statusReason: z.string().trim().max(250).optional().or(z.literal("")),
 });
@@ -115,85 +155,156 @@ export const studentUpdateSchema = studentCreateSchema.partial().extend({
 export const studentAccountActionSchema = z.object({
   action: z.enum(["toggleActive", "resetPassword"]),
   isActive: z.boolean().optional(),
-  newPassword: z.string().min(6, "Password must be at least 6 characters").optional().or(z.literal("")),
+  newPassword: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(200)
+    .optional()
+    .or(z.literal("")),
 });
 
 export const promoteStudentsSchema = z.object({
-  studentIds: z.array(z.string().min(1)).min(1, "Select at least one student"),
-  targetClassId: z.string().optional().or(z.literal("")),
+  studentIds: z
+    .array(z.string().min(1).max(80))
+    .min(1, "Select at least one student")
+    .max(500, "Cannot promote more than 500 students at once"),
+  targetClassId: z.string().max(80).optional().or(z.literal("")),
   markGraduated: z.boolean().default(false),
   note: z.string().trim().max(200).optional().or(z.literal("")),
 });
 
 export const attendanceBatchSchema = z.object({
-  classId: z.string().min(1),
+  classId: z.string().min(1).max(80),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  records: z.array(
-    z.object({
-      studentId: z.string().min(1),
-      status: z.enum(["PRESENT", "ABSENT", "LATE"]),
-      note: z.string().max(120).optional().or(z.literal("")),
-    })
-  ),
+  shift: z.enum(["SHIFT_A", "SHIFT_B"]).default("SHIFT_A"),
+  records: z
+    .array(
+      z.object({
+        studentId: z.string().min(1).max(80),
+        status: z.enum(["PRESENT", "ABSENT"]),
+      })
+    )
+    .min(1)
+    .max(500),
+});
+
+export const examAttendanceBatchSchema = z.object({
+  classId: z.string().min(1).max(80),
+  examId: z.string().max(80).optional().or(z.literal("")),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  subjectIds: z
+    .array(z.string().min(1).max(80))
+    .min(1, "Select at least one subject")
+    .max(25),
+  records: z
+    .array(
+      z.object({
+        studentId: z.string().min(1).max(80),
+        status: z.enum(["PRESENT", "ABSENT"]),
+        note: z.string().trim().max(150).optional().or(z.literal("")),
+      })
+    )
+    .min(1)
+    .max(500),
 });
 
 export const examCreateSchema = z.object({
-  termId: z.string().min(1),
+  termId: z.string().min(1).max(80),
   name: z.string().trim().min(2).max(60),
   maxMarks: z.coerce.number().positive().max(1000),
 });
 
 export const marksBatchSchema = z.object({
-  examId: z.string().min(1),
-  classId: z.string().min(1),
-  subjectId: z.string().min(1),
-  entries: z.array(
-    z.object({
-      studentId: z.string().min(1),
-      score: z.coerce.number().min(0),
-      remark: z.string().max(120).optional().or(z.literal("")),
-    })
-  ),
-  clearStudentIds: z.array(z.string().min(1)).optional(),
+  examId: z.string().min(1).max(80),
+  classId: z.string().min(1).max(80),
+  subjectId: z.string().min(1).max(80),
+  entries: z
+    .array(
+      z.object({
+        studentId: z.string().min(1).max(80),
+        score: z.coerce.number().min(0),
+        remark: z.string().max(120).optional().or(z.literal("")),
+      })
+    )
+    .max(500),
+  clearStudentIds: z.array(z.string().min(1).max(80)).max(500).optional(),
 });
 
 export const reportRemarksBatchSchema = z.object({
-  examId: z.string().min(1),
-  classId: z.string().min(1),
-  remarks: z.array(
-    z.object({
-      studentId: z.string().min(1),
-      teacherRemark: z.string().trim().max(300).optional().or(z.literal("")),
-      principalRemark: z.string().trim().max(300).optional().or(z.literal("")),
-    })
-  ),
+  examId: z.string().min(1).max(80),
+  classId: z.string().min(1).max(80),
+  remarks: z
+    .array(
+      z.object({
+        studentId: z.string().min(1).max(80),
+        teacherRemark: z.string().trim().max(300).optional().or(z.literal("")),
+        principalRemark: z.string().trim().max(300).optional().or(z.literal("")),
+      })
+    )
+    .min(1)
+    .max(500),
 });
 
 export const gradeScaleUpdateSchema = z.object({
-  scales: z.array(
-    z.object({
-      minScore: z.coerce.number().min(0).max(100),
-      maxScore: z.coerce.number().min(0).max(100),
-      grade: z.string().trim().min(1).max(5),
-      remark: z.string().trim().min(1).max(40),
-    })
-  ),
+  scales: z
+    .array(
+      z.object({
+        minScore: z.coerce.number().min(0).max(100),
+        maxScore: z.coerce.number().min(0).max(100),
+        grade: z.string().trim().min(1).max(5),
+        remark: z.string().trim().min(1).max(40),
+      })
+    )
+    .min(1)
+    .max(30),
 });
 
 export const feeStructureSchema = z.object({
+  id: z.string().min(1).max(80).optional(),
   classId: z.string().min(1),
   termId: z.string().min(1),
   name: z.string().trim().min(2).max(60),
   amount: z.coerce.number().positive("Amount must be greater than 0"),
+  isBusFee: z.boolean().optional().default(false),
 });
 
 export const generateInvoicesSchema = z.object({
-  termId: z.string().min(1),
-  classId: z.string().optional().or(z.literal("")),
-  studentId: z.string().optional().or(z.literal("")),
-  discountAmount: z.coerce.number().min(0).default(0),
-  discountReason: z.string().trim().max(100).optional().or(z.literal("")),
-  dueDate: z.string().optional().or(z.literal("")),
+  termId: z.string().min(1).max(80),
+  classId: z.string().max(80).optional().or(z.literal("")),
+  studentId: z.string().max(80).optional().or(z.literal("")),
+  feeStructureIds: z.array(z.string().min(1).max(80)).max(200).optional(),
+  discountAmount: z.coerce.number().min(0).max(1_000_000).default(0),
+  discountReason: z.string().trim().max(150).optional().or(z.literal("")),
+  dueDate: z.string().max(30).optional().or(z.literal("")),
+});
+
+export const updateInvoiceSchema = z.object({
+  action: z.enum(["cancel", "updateDiscount", "updateInvoice"]).optional(),
+  discountAmount: z.coerce
+    .number()
+    .min(0, "Invalid discount amount")
+    .max(1_000_000)
+    .optional(),
+  discountReason: z.string().trim().max(150).optional().or(z.literal("")),
+  items: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(80).optional(),
+        feeStructureId: z.string().min(1).max(80).optional().nullable(),
+        name: z.string().trim().min(1, "Item name is required").max(80),
+        amount: z.coerce.number().min(0, "Amount cannot be negative").max(1_000_000),
+      })
+    )
+    .min(1, "Invoice must have at least one fee item")
+    .max(20)
+    .optional(),
+});
+
+export const paymentAllocationInputSchema = z.object({
+  invoiceItemId: z.string().min(1).max(80).optional(),
+  feeStructureId: z.string().min(1).max(80).optional().nullable(),
+  itemName: z.string().trim().min(1).max(80).optional(),
+  amount: z.coerce.number().positive("Allocation amount must be greater than 0"),
 });
 
 export const recordPaymentSchema = z.object({
@@ -203,9 +314,20 @@ export const recordPaymentSchema = z.object({
   reference: z.string().trim().max(80).optional().or(z.literal("")),
   note: z.string().trim().max(150).optional().or(z.literal("")),
   paidAt: z.string().optional().or(z.literal("")),
+  allocations: z.array(paymentAllocationInputSchema).max(30).optional(),
+});
+
+export const updatePaymentSchema = z.object({
+  id: z.string().min(1),
+  amount: z.coerce.number().positive("Payment amount must be greater than 0"),
+  method: z.enum(["CASH", "EVC_PLUS", "ZAAD", "EDAHAB", "BANK"]),
+  reference: z.string().trim().max(80).optional().or(z.literal("")),
+  note: z.string().trim().max(150).optional().or(z.literal("")),
+  allocations: z.array(paymentAllocationInputSchema).max(30).optional(),
 });
 
 export const expenseSchema = z.object({
+  id: z.string().min(1).max(80).optional(),
   title: z.string().trim().min(2).max(100),
   category: z.string().trim().min(2).max(50).default("General"),
   amount: z.coerce.number().positive(),

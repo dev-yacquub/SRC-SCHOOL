@@ -14,6 +14,15 @@ import bcrypt from "bcryptjs";
 let prisma: PrismaClient;
 
 async function main() {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.ALLOW_PRODUCTION_SEED !== "true"
+  ) {
+    throw new Error(
+      "Refusing to seed demo accounts with default passwords in production. Set ALLOW_PRODUCTION_SEED=true only if intentional."
+    );
+  }
+
   const envPath = path.resolve(process.cwd(), ".env");
   if (fs.existsSync(envPath) && typeof process.loadEnvFile === "function") {
     process.loadEnvFile(envPath);
@@ -39,7 +48,7 @@ async function main() {
     update: {},
     create: {
       id: "default",
-      schoolName: "Al-Noor Academy",
+      schoolName: "SRC Tech School",
       schoolAddress: "Hodan District, Mogadishu",
       schoolPhone: "+252 61 555 0100",
       schoolEmail: "admin@alnoor.edu",
@@ -348,29 +357,30 @@ async function main() {
     createdStudents.push(student);
   }
 
-  // Attendance for Grade 1A (last 3 days)
+  // Attendance for Grade 1A (last 3 days, Shift A and Shift B)
   const today = new Date();
   const grade1AStudents = createdStudents.filter((s) => s.classId === grade1A.id);
   for (let offset = 0; offset < 3; offset++) {
     const d = new Date(today);
     d.setDate(today.getDate() - offset);
     const dateStr = d.toISOString().slice(0, 10);
-    for (let i = 0; i < grade1AStudents.length; i++) {
-      const status =
-        offset === 1 && i === 2
-          ? AttendanceStatus.ABSENT
-          : offset === 0 && i === 3
-            ? AttendanceStatus.LATE
+    for (const shift of ["SHIFT_A", "SHIFT_B"] as const) {
+      for (let i = 0; i < grade1AStudents.length; i++) {
+        const status =
+          offset === 1 && i === 2
+            ? AttendanceStatus.ABSENT
             : AttendanceStatus.PRESENT;
-      await prisma.attendance.create({
-        data: {
-          studentId: grade1AStudents[i].id,
-          classId: grade1A.id,
-          date: dateStr,
-          status,
-          markedById: teacherUser1.id,
-        },
-      });
+        await prisma.attendance.create({
+          data: {
+            studentId: grade1AStudents[i].id,
+            classId: grade1A.id,
+            date: dateStr,
+            shift,
+            status,
+            markedById: teacherUser1.id,
+          },
+        });
+      }
     }
   }
 
@@ -429,25 +439,36 @@ async function main() {
   }
 
   // Fee Structures for Term 1
+  const createdStructures = [];
   for (const cls of [grade1A, grade1B, grade2A]) {
-    await prisma.feeStructure.createMany({
-      data: [
-        { classId: cls.id, termId: term1.id, name: "Tuition Fee", amountCents: 6000 },
-        { classId: cls.id, termId: term1.id, name: "Exam Fee", amountCents: 1000 },
-      ],
-    });
+    createdStructures.push(
+      await prisma.feeStructure.create({
+        data: { classId: cls.id, termId: term1.id, name: "Tuition Fee", amountCents: 6000 },
+      }),
+      await prisma.feeStructure.create({
+        data: { classId: cls.id, termId: term1.id, name: "Exam Fee", amountCents: 1000 },
+      })
+    );
   }
-  await prisma.feeStructure.createMany({
-    data: [
-      { classId: form1A.id, termId: term1.id, name: "Tuition Fee", amountCents: 9000 },
-      { classId: form1A.id, termId: term1.id, name: "Exam Fee", amountCents: 1500 },
-    ],
-  });
+  createdStructures.push(
+    await prisma.feeStructure.create({
+      data: { classId: form1A.id, termId: term1.id, name: "Tuition Fee", amountCents: 9000 },
+    }),
+    await prisma.feeStructure.create({
+      data: { classId: form1A.id, termId: term1.id, name: "Exam Fee", amountCents: 1500 },
+    })
+  );
 
   // Invoices & Payments
   for (let i = 0; i < createdStudents.length; i++) {
     const stu = createdStudents[i];
     const isForm = stu.classId === form1A.id;
+    const tuitionFs = createdStructures.find(
+      (f) => f.classId === stu.classId && f.name === "Tuition Fee"
+    );
+    const examFs = createdStructures.find(
+      (f) => f.classId === stu.classId && f.name === "Exam Fee"
+    );
     const tuition = isForm ? 9000 : 6000;
     const examFee = isForm ? 1500 : 1000;
     const subtotal = tuition + examFee;
@@ -480,11 +501,20 @@ async function main() {
         createdById: accountantUser.id,
         items: {
           create: [
-            { name: "Tuition Fee", amountCents: tuition },
-            { name: "Exam Fee", amountCents: examFee },
+            {
+              feeStructureId: tuitionFs?.id ?? null,
+              name: "Tuition Fee",
+              amountCents: tuition,
+            },
+            {
+              feeStructureId: examFs?.id ?? null,
+              name: "Exam Fee",
+              amountCents: examFee,
+            },
           ],
         },
       },
+      include: { items: true },
     });
 
     if (paidCents > 0) {
@@ -494,6 +524,35 @@ async function main() {
         PaymentMethod.ZAAD,
         PaymentMethod.EDAHAB,
       ];
+      const tuitionItem = invoice.items.find((it) => it.name === "Tuition Fee");
+      const examItem = invoice.items.find((it) => it.name === "Exam Fee");
+      const allocationsData =
+        status === InvoiceStatus.PAID && tuitionItem && examItem
+          ? [
+              {
+                invoiceItemId: tuitionItem.id,
+                feeStructureId: tuitionItem.feeStructureId,
+                itemName: tuitionItem.name,
+                amountCents: Math.max(0, paidCents - examItem.amountCents),
+              },
+              {
+                invoiceItemId: examItem.id,
+                feeStructureId: examItem.feeStructureId,
+                itemName: examItem.name,
+                amountCents: examItem.amountCents,
+              },
+            ]
+          : tuitionItem
+            ? [
+                {
+                  invoiceItemId: tuitionItem.id,
+                  feeStructureId: tuitionItem.feeStructureId,
+                  itemName: tuitionItem.name,
+                  amountCents: paidCents,
+                },
+              ]
+            : [];
+
       await prisma.payment.create({
         data: {
           receiptNo: `RCT-2026-${String(i + 1).padStart(4, "0")}`,
@@ -502,6 +561,9 @@ async function main() {
           method: methods[i % methods.length],
           reference: i === 0 ? "EVC-992814" : i === 3 ? "EDH-44012" : null,
           receivedById: accountantUser.id,
+          ...(allocationsData.length > 0
+            ? { allocations: { create: allocationsData } }
+            : {}),
         },
       });
     }

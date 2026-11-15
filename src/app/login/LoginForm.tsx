@@ -2,7 +2,8 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { School, Lock, User, ShieldCheck } from "lucide-react";
+import { Lock, User } from "lucide-react";
+import SrcLogo from "@/components/SrcLogo";
 
 export function LoginForm({
   needsSetup,
@@ -16,7 +17,9 @@ export function LoginForm({
   const [password, setPassword] = useState("");
 
   // Initial setup fields (only shown when no users exist in the database)
-  const [schoolName, setSchoolName] = useState(initialSchoolName || "");
+  const [schoolName, setSchoolName] = useState(
+    initialSchoolName || "SRC Tech School"
+  );
   const [currency, setCurrency] = useState("USD");
   const [currencySymbol, setCurrencySymbol] = useState("$");
   const [fullName, setFullName] = useState("");
@@ -90,9 +93,7 @@ export function LoginForm({
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-4">
         <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl sm:p-8">
           <div className="mb-6 flex flex-col items-center text-center">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md">
-              <ShieldCheck className="h-6 w-6" />
-            </div>
+            <SrcLogo size={76} className="mb-3" />
             <h1 className="text-2xl font-bold text-slate-900">Initial School Setup</h1>
             <p className="mt-1 text-sm text-slate-500">
               Create your school profile and primary Administrator account
@@ -204,10 +205,10 @@ export function LoginForm({
                   <input
                     type="password"
                     required
-                    minLength={6}
+                    minLength={8}
                     value={setupPassword}
                     onChange={(e) => setSetupPassword(e.target.value)}
-                    placeholder="Minimum 6 characters"
+                    placeholder="Minimum 8 characters"
                     className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
@@ -240,11 +241,9 @@ export function LoginForm({
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md">
-            <School className="h-6 w-6" />
-          </div>
+          <SrcLogo size={88} className="mb-3" />
           <h1 className="text-2xl font-bold text-slate-900">
-            {initialSchoolName || "School Management System"}
+            {initialSchoolName || "SRC Tech School"}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             School Management System — Sign In

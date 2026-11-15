@@ -11,6 +11,7 @@ export type ModelName =
   | "classSubject"
   | "timetableSlot"
   | "attendance"
+  | "examAttendance"
   | "exam"
   | "mark"
   | "reportRemark"
@@ -19,6 +20,7 @@ export type ModelName =
   | "invoice"
   | "invoiceItem"
   | "payment"
+  | "paymentAllocation"
   | "expense"
   | "auditLog";
 
@@ -48,7 +50,7 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
     fixedId: "default",
     defaults: {
       id: "default",
-      schoolName: "School Management System",
+      schoolName: "SRC Tech School",
       schoolAddress: "",
       schoolPhone: "",
       schoolEmail: "",
@@ -197,6 +199,12 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
         fk: "classId",
         cascadeDelete: true,
       },
+      examAttendance: {
+        kind: "hasMany",
+        targetModel: "examAttendance",
+        fk: "classId",
+        cascadeDelete: true,
+      },
       marks: {
         kind: "hasMany",
         targetModel: "mark",
@@ -220,6 +228,12 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
       classSubjects: {
         kind: "hasMany",
         targetModel: "classSubject",
+        fk: "subjectId",
+        cascadeDelete: true,
+      },
+      examAttendance: {
+        kind: "hasMany",
+        targetModel: "examAttendance",
         fk: "subjectId",
         cascadeDelete: true,
       },
@@ -262,6 +276,8 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
       photo: null,
       address: null,
       previousSchool: null,
+      usesBus: false,
+      busFeeCents: null,
       status: "ACTIVE",
       statusReason: null,
       statusUpdatedAt: null,
@@ -289,6 +305,12 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
       attendance: {
         kind: "hasMany",
         targetModel: "attendance",
+        fk: "studentId",
+        cascadeDelete: true,
+      },
+      examAttendance: {
+        kind: "hasMany",
+        targetModel: "examAttendance",
         fk: "studentId",
         cascadeDelete: true,
       },
@@ -383,9 +405,10 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
   attendance: {
     collection: "attendance",
     compoundUniques: {
-      studentId_date: ["studentId", "date"],
+      studentId_date_shift: ["studentId", "date", "shift"],
     },
     defaults: {
+      shift: "SHIFT_A",
       note: null,
     },
     hasCreatedAt: true,
@@ -400,6 +423,46 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
         kind: "belongsTo",
         targetModel: "schoolClass",
         fk: "classId",
+      },
+    },
+  },
+  examAttendance: {
+    collection: "exam_attendance",
+    compoundUniques: {
+      studentId_date_examKey_subjectId: [
+        "studentId",
+        "date",
+        "examKey",
+        "subjectId",
+      ],
+    },
+    defaults: {
+      examId: null,
+      examKey: "",
+      note: null,
+    },
+    hasCreatedAt: true,
+    hasUpdatedAt: true,
+    relations: {
+      exam: {
+        kind: "belongsTo",
+        targetModel: "exam",
+        fk: "examId",
+      },
+      class: {
+        kind: "belongsTo",
+        targetModel: "schoolClass",
+        fk: "classId",
+      },
+      subject: {
+        kind: "belongsTo",
+        targetModel: "subject",
+        fk: "subjectId",
+      },
+      student: {
+        kind: "belongsTo",
+        targetModel: "student",
+        fk: "studentId",
       },
     },
   },
@@ -430,6 +493,12 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
       reportRemarks: {
         kind: "hasMany",
         targetModel: "reportRemark",
+        fk: "examId",
+        cascadeDelete: true,
+      },
+      examAttendance: {
+        kind: "hasMany",
+        targetModel: "examAttendance",
         fk: "examId",
         cascadeDelete: true,
       },
@@ -501,6 +570,9 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
     compoundUniques: {
       classId_termId_name: ["classId", "termId", "name"],
     },
+    defaults: {
+      isBusFee: false,
+    },
     hasCreatedAt: true,
     hasUpdatedAt: true,
     relations: {
@@ -513,6 +585,16 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
         kind: "belongsTo",
         targetModel: "term",
         fk: "termId",
+      },
+      invoiceItems: {
+        kind: "hasMany",
+        targetModel: "invoiceItem",
+        fk: "feeStructureId",
+      },
+      paymentAllocations: {
+        kind: "hasMany",
+        targetModel: "paymentAllocation",
+        fk: "feeStructureId",
       },
     },
   },
@@ -555,11 +637,24 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
   },
   invoiceItem: {
     collection: "invoice_items",
+    defaults: {
+      feeStructureId: null,
+    },
     relations: {
       invoice: {
         kind: "belongsTo",
         targetModel: "invoice",
         fk: "invoiceId",
+      },
+      feeStructure: {
+        kind: "belongsTo",
+        targetModel: "feeStructure",
+        fk: "feeStructureId",
+      },
+      allocations: {
+        kind: "hasMany",
+        targetModel: "paymentAllocation",
+        fk: "invoiceItemId",
       },
     },
   },
@@ -577,6 +672,36 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
         kind: "belongsTo",
         targetModel: "invoice",
         fk: "invoiceId",
+      },
+      allocations: {
+        kind: "hasMany",
+        targetModel: "paymentAllocation",
+        fk: "paymentId",
+        cascadeDelete: true,
+      },
+    },
+  },
+  paymentAllocation: {
+    collection: "payment_allocations",
+    defaults: {
+      invoiceItemId: null,
+      feeStructureId: null,
+    },
+    relations: {
+      payment: {
+        kind: "belongsTo",
+        targetModel: "payment",
+        fk: "paymentId",
+      },
+      invoiceItem: {
+        kind: "belongsTo",
+        targetModel: "invoiceItem",
+        fk: "invoiceItemId",
+      },
+      feeStructure: {
+        kind: "belongsTo",
+        targetModel: "feeStructure",
+        fk: "feeStructureId",
       },
     },
   },

@@ -11,6 +11,7 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:clear": "tsx scripts/clear-database.ts",
+    "db:clear:accounting": "tsx scripts/clear-accounting.ts",
     "db:migrate:firebase": "tsx scripts/migrate-sqlite-to-firebase.ts",
     "db:studio": "prisma studio"
   },

@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
-import { hashPassword, requireApiRole } from "@/lib/auth";
+import {
+  generateTemporaryPassword,
+  hashPassword,
+  requireApiRole,
+} from "@/lib/auth";
 import { generateSequenceCode } from "@/lib/domain";
 import { logAudit } from "@/lib/audit";
+
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_IMPORT_ROWS = 200;
 
 export async function GET() {
   const { error } = await requireApiRole(["ADMISSION", "ADMIN"]);
@@ -26,6 +33,7 @@ export async function GET() {
     { header: "Previous School", key: "previousSchool", width: 22 },
     { header: "Class Name", key: "className", width: 16 },
     { header: "Admission Date (YYYY-MM-DD)", key: "admissionDate", width: 24 },
+    { header: "Uses Bus (YES/NO)", key: "usesBus", width: 18 },
   ];
 
   sheet.getRow(1).font = { bold: true };
@@ -39,6 +47,7 @@ export async function GET() {
     previousSchool: "Previous School Name",
     className: classes[0]?.name ?? "Class Name",
     admissionDate: new Date().toISOString().slice(0, 10),
+    usesBus: "NO",
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -82,6 +91,18 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      return NextResponse.json(
+        { error: "Only .xlsx Excel files are supported" },
+        { status: 400 }
+      );
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: "Excel file must be 5 MB or smaller" },
+        { status: 400 }
+      );
+    }
 
     const workbook = new ExcelJS.Workbook();
     const buf = await file.arrayBuffer();
@@ -90,6 +111,14 @@ export async function POST(req: Request) {
     if (!sheet) {
       return NextResponse.json(
         { error: "No worksheet found in file" },
+        { status: 400 }
+      );
+    }
+    if (sheet.rowCount > MAX_IMPORT_ROWS + 1) {
+      return NextResponse.json(
+        {
+          error: `Spreadsheet exceeds maximum of ${MAX_IMPORT_ROWS} rows per import`,
+        },
         { status: 400 }
       );
     }
@@ -112,12 +141,13 @@ export async function POST(req: Request) {
       className: string;
       academicYearId: string;
       admissionDate: Date;
+      usesBus: boolean;
     }[] = [];
     const errors: string[] = [];
 
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
-      const fullName = String(row.getCell(1).value ?? "").trim();
+      const fullName = String(row.getCell(1).value ?? "").trim().slice(0, 100);
       if (!fullName) return;
 
       const genderRaw = String(row.getCell(2).value ?? "MALE")
@@ -127,19 +157,28 @@ export async function POST(req: Request) {
         genderRaw === "FEMALE" || genderRaw === "F" ? "FEMALE" : "MALE";
 
       const dob = parseExcelDate(row.getCell(3).value);
-      const guardianName = String(row.getCell(4).value ?? "").trim();
-      const guardianPhone = String(row.getCell(5).value ?? "").trim();
-      const address = String(row.getCell(6).value ?? "").trim() || null;
-      const previousSchool = String(row.getCell(7).value ?? "").trim() || null;
+      const guardianName = String(row.getCell(4).value ?? "").trim().slice(0, 100);
+      const guardianPhone = String(row.getCell(5).value ?? "").trim().slice(0, 30);
+      const address =
+        String(row.getCell(6).value ?? "").trim().slice(0, 200) || null;
+      const previousSchool =
+        String(row.getCell(7).value ?? "").trim().slice(0, 120) || null;
       const classNameRaw = String(row.getCell(8).value ?? "").trim();
       const admissionDate = parseExcelDate(row.getCell(9).value) ?? new Date();
+      const usesBusRaw = String(row.getCell(10).value ?? "")
+        .trim()
+        .toUpperCase();
+      const usesBus =
+        usesBusRaw === "YES" || usesBusRaw === "Y" || usesBusRaw === "TRUE" || usesBusRaw === "1";
 
       if (fullName.length < 2) {
         errors.push(`Row ${rowNumber}: Student full name is too short.`);
         return;
       }
-      if (!guardianName || !guardianPhone) {
-        errors.push(`Row ${rowNumber} (${fullName}): Guardian name and phone are required.`);
+      if (guardianName.length < 2 || guardianPhone.length < 5) {
+        errors.push(
+          `Row ${rowNumber} (${fullName}): Valid guardian name and phone are required.`
+        );
         return;
       }
 
@@ -164,6 +203,7 @@ export async function POST(req: Request) {
         className: cls.name,
         academicYearId: cls.academicYearId,
         admissionDate,
+        usesBus,
       });
     });
 
@@ -197,8 +237,15 @@ export async function POST(req: Request) {
     });
     const prefix = settings?.admissionPrefix ?? "ADM";
     const year = new Date().getFullYear();
-    const defaultPassword = "Student123!";
-    const passwordHash = await hashPassword(defaultPassword);
+
+    // Generate a unique random temporary password per imported student
+    const preparedCredentials = await Promise.all(
+      rowsToInsert.map(async () => {
+        const temporaryPassword = generateTemporaryPassword();
+        const passwordHash = await hashPassword(temporaryPassword);
+        return { temporaryPassword, passwordHash };
+      })
+    );
 
     const createdAccounts = await prisma.$transaction(async (tx) => {
       let seq = (await tx.student.count()) + 1;
@@ -208,9 +255,12 @@ export async function POST(req: Request) {
         fullName: string;
         className: string;
         username: string;
+        temporaryPassword: string;
       }[] = [];
 
-      for (const item of rowsToInsert) {
+      for (let idx = 0; idx < rowsToInsert.length; idx++) {
+        const item = rowsToInsert[idx];
+        const cred = preparedCredentials[idx];
         let admissionNo = generateSequenceCode(prefix, year, seq);
         while (await tx.student.findUnique({ where: { admissionNo } })) {
           seq++;
@@ -223,7 +273,7 @@ export async function POST(req: Request) {
           data: {
             username,
             fullName: item.fullName,
-            passwordHash,
+            passwordHash: cred.passwordHash,
             role: "STUDENT",
             mustChangePassword: true,
           },
@@ -241,6 +291,7 @@ export async function POST(req: Request) {
             previousSchool: item.previousSchool,
             classId: item.classId,
             admissionDate: item.admissionDate,
+            usesBus: item.usesBus,
           },
         });
         await tx.enrollment.create({
@@ -259,6 +310,7 @@ export async function POST(req: Request) {
           fullName: item.fullName,
           className: item.className,
           username,
+          temporaryPassword: cred.temporaryPassword,
         });
       }
 
@@ -275,7 +327,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       importedCount: createdAccounts.length,
-      defaultPassword,
+      defaultPassword: "Unique per student (see table)",
       createdAccounts,
       errors,
     });

@@ -18,7 +18,7 @@ export const ROLE_LABELS: Record<AppRole, string> = {
 export const ROLE_HOME: Record<AppRole, string> = {
   ADMIN: "/admin",
   ADMISSION: "/admission",
-  TEACHER: "/teacher",
+  TEACHER: "/teacher/attendance",
   STUDENT: "/student",
   ACCOUNTANT: "/accountant",
 };
@@ -62,8 +62,8 @@ export const ROLE_NAV: Record<AppRole, NavItem[]> = {
     { label: "Import Excel", href: "/admission/import", icon: "FileSpreadsheet" },
   ],
   TEACHER: [
-    { label: "Dashboard", href: "/teacher", icon: "LayoutDashboard" },
     { label: "Attendance", href: "/teacher/attendance", icon: "ClipboardCheck" },
+    { label: "Dashboard", href: "/teacher", icon: "LayoutDashboard" },
     { label: "Marks Entry", href: "/teacher/marks", icon: "PenSquare" },
     { label: "Class Results", href: "/teacher/results", icon: "Award" },
     { label: "My Students", href: "/teacher/students", icon: "GraduationCap" },

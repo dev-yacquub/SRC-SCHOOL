@@ -3,7 +3,7 @@ import { FirebaseAnalytics } from "@/components/FirebaseAnalytics";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: process.env.SCHOOL_NAME || "School Management System",
+  title: process.env.SCHOOL_NAME || "SRC Tech School",
   description:
     "Simple, role-based school management system for Admin, Admission, Teacher, Student, and Accountant.",
 };

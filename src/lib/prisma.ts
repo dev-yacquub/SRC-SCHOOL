@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { firestorePrisma } from "./firestore-prisma";
+import { ALL_MODELS } from "./firestore-schema";
 
 export type DatabaseProvider = "firebase" | "sqlite";
 
@@ -18,8 +19,18 @@ const globalForPrisma = globalThis as unknown as {
   sqlitePrisma: PrismaClient | undefined;
 };
 
+/** Ensure dev-cached Prisma singletons expose every model after schema updates. */
+function hasAllModels(client: PrismaClient | undefined): client is PrismaClient {
+  if (!client) return false;
+  const record = client as unknown as Record<string, unknown>;
+  return ALL_MODELS.every((model) => {
+    const delegate = record[model];
+    return typeof delegate === "object" && delegate !== null;
+  });
+}
+
 function getSqliteClient(): PrismaClient {
-  if (!globalForPrisma.sqlitePrisma) {
+  if (!hasAllModels(globalForPrisma.sqlitePrisma)) {
     globalForPrisma.sqlitePrisma = new PrismaClient({
       log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
     });
@@ -30,8 +41,7 @@ function getSqliteClient(): PrismaClient {
 export const databaseProvider: DatabaseProvider = getDatabaseProvider();
 
 export const prisma: PrismaClient =
-  globalForPrisma.prisma ??
-  (databaseProvider === "firebase" ? firestorePrisma : getSqliteClient());
+  databaseProvider === "firebase" ? firestorePrisma : getSqliteClient();
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;

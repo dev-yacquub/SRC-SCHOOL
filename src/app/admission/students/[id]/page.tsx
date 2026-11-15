@@ -136,7 +136,7 @@ export default async function Student360ProfilePage({
         <StatCard
           label="Attendance Rate"
           value={attSummary.total > 0 ? `${attSummary.ratePercent}%` : "—"}
-          hint={`${attSummary.present}P · ${attSummary.late}L · ${attSummary.absent}A`}
+          hint={`${attSummary.present}P · ${attSummary.absent}A`}
           tone="indigo"
         />
         <StatCard
@@ -202,6 +202,21 @@ export default async function Student360ProfilePage({
                 <dt className="text-xs text-slate-500">Home Address</dt>
                 <dd className="font-medium text-slate-900">{student.address ?? "—"}</dd>
               </div>
+              <div className="col-span-2">
+                <dt className="text-xs text-slate-500">School Bus / Transport</dt>
+                <dd className="font-medium text-slate-900">
+                  {student.usesBus ? (
+                    <span className="inline-flex items-center gap-2 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
+                      Uses School Bus
+                      {student.busFeeCents && student.busFeeCents > 0
+                        ? ` (${formatCurrency(student.busFeeCents, ctx.currencySymbol)} override)`
+                        : " (Class standard bus fee)"}
+                    </span>
+                  ) : (
+                    "No"
+                  )}
+                </dd>
+              </div>
             </dl>
           </div>
         </Card>
@@ -260,13 +275,13 @@ export default async function Student360ProfilePage({
                   key={a.id}
                   className="flex items-center justify-between py-2 text-sm"
                 >
-                  <div>
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs text-slate-700">{a.date}</span>
-                    {a.note && (
-                      <span className="ml-2 text-xs text-slate-500">({a.note})</span>
-                    )}
+                    <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                      {a.shift === "SHIFT_B" ? "Shift B" : "Shift A"}
+                    </span>
                   </div>
-                  <StatusBadge value={a.status} />
+                  <StatusBadge value={a.status === "ABSENT" ? "ABSENT" : "PRESENT"} />
                 </div>
               ))}
             </div>

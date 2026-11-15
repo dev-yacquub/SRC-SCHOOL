@@ -94,12 +94,12 @@ export default function ChangePasswordPage() {
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">
-              New Password (min 6 chars)
+              New Password (min 8 chars)
             </label>
             <input
               type="password"
               required
-              minLength={6}
+              minLength={8}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
@@ -112,7 +112,7 @@ export default function ChangePasswordPage() {
             <input
               type="password"
               required
-              minLength={6}
+              minLength={8}
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"

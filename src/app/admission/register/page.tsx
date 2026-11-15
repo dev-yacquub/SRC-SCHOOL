@@ -24,6 +24,8 @@ export default function RegisterStudentPage() {
   const [guardianPhone, setGuardianPhone] = useState("");
   const [address, setAddress] = useState("");
   const [previousSchool, setPreviousSchool] = useState("");
+  const [usesBus, setUsesBus] = useState(false);
+  const [busFee, setBusFee] = useState("");
   const [classId, setClassId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +74,8 @@ export default function RegisterStudentPage() {
         guardianPhone,
         address,
         previousSchool,
+        usesBus,
+        busFee: usesBus && busFee.trim() !== "" ? Number(busFee) : null,
         classId,
       }),
     });
@@ -91,6 +95,8 @@ export default function RegisterStudentPage() {
     setGuardianPhone("");
     setAddress("");
     setPreviousSchool("");
+    setUsesBus(false);
+    setBusFee("");
   }
 
   return (
@@ -274,6 +280,47 @@ export default function RegisterStudentPage() {
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
               </div>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-4">
+            <h3 className="mb-3 text-sm font-semibold text-slate-800">
+              School Bus / Transport Service
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-2 sm:items-center">
+              <label className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={usesBus}
+                  onChange={(e) => setUsesBus(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-300 text-indigo-600"
+                />
+                <span>
+                  <strong className="font-semibold text-slate-900">
+                    Student uses School Bus
+                  </strong>
+                  <span className="block text-xs text-slate-500">
+                    Automatically adds the Bus Fee item when generating term invoices
+                  </span>
+                </span>
+              </label>
+
+              {usesBus && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">
+                    Custom Bus Fee Override (optional)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={busFee}
+                    onChange={(e) => setBusFee(e.target.value)}
+                    placeholder="Leave blank to use class Bus Fee"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm tabular-nums"
+                  />
+                </div>
+              )}
             </div>
           </div>
 

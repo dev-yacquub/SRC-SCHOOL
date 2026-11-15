@@ -28,9 +28,9 @@ import {
   KeyRound,
   Menu,
   X,
-  School,
 } from "lucide-react";
 import { AppRole, ROLE_LABELS, ROLE_NAV } from "@/lib/role-routes";
+import SrcLogo from "@/components/SrcLogo";
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   LayoutDashboard,
@@ -103,9 +103,7 @@ export function DashboardShell({
   const sidebarContent = (
     <div className="flex h-full flex-col bg-slate-900 text-slate-100">
       <div className="flex items-center gap-3 border-b border-slate-800 px-5 py-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white">
-          <School className="h-5 w-5" />
-        </div>
+        <SrcLogo size={40} className="shrink-0" />
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-white">{schoolName}</p>
           <p className="truncate text-xs text-slate-400">
@@ -223,9 +221,12 @@ export function DashboardShell({
           >
             <Menu className="h-5 w-5" />
           </button>
-          <span className="truncate text-sm font-semibold text-slate-900">
-            {schoolName}
-          </span>
+          <div className="flex min-w-0 items-center gap-2">
+            <SrcLogo size={28} className="shrink-0" />
+            <span className="truncate text-sm font-semibold text-slate-900">
+              {schoolName}
+            </span>
+          </div>
           <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
             {user.role}
           </span>

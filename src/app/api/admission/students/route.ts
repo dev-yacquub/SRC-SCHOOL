@@ -1,19 +1,34 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { hashPassword, requireApiRole } from "@/lib/auth";
+import {
+  generateTemporaryPassword,
+  hashPassword,
+  requireApiRole,
+} from "@/lib/auth";
 import { studentCreateSchema } from "@/lib/validation";
-import { generateSequenceCode } from "@/lib/domain";
+import { dollarsToCents, generateSequenceCode } from "@/lib/domain";
 import { logAudit } from "@/lib/audit";
+
+const VALID_STATUSES = new Set([
+  "ACTIVE",
+  "TRANSFERRED",
+  "WITHDRAWN",
+  "GRADUATED",
+]);
+const VALID_GENDERS = new Set(["MALE", "FEMALE"]);
 
 export async function GET(req: Request) {
   const { error } = await requireApiRole(["ADMISSION", "ADMIN", "ACCOUNTANT"]);
   if (error) return error;
 
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q")?.trim().toLowerCase() ?? "";
+  const q = searchParams.get("q")?.trim().toLowerCase().slice(0, 100) ?? "";
   const classId = searchParams.get("classId") ?? "";
-  const status = searchParams.get("status") ?? "";
-  const gender = searchParams.get("gender") ?? "";
+  const statusRaw = searchParams.get("status") ?? "";
+  const genderRaw = searchParams.get("gender") ?? "";
+  const usesBusParam = searchParams.get("usesBus") ?? "";
+  const status = VALID_STATUSES.has(statusRaw) ? statusRaw : "";
+  const gender = VALID_GENDERS.has(genderRaw) ? genderRaw : "";
   const pageParam = searchParams.get("page");
   const limitParam = searchParams.get("limit");
 
@@ -21,6 +36,11 @@ export async function GET(req: Request) {
     ...(classId ? { classId } : {}),
     ...(status ? { status: status as never } : {}),
     ...(gender ? { gender: gender as never } : {}),
+    ...(usesBusParam === "true"
+      ? { usesBus: true }
+      : usesBusParam === "false"
+        ? { usesBus: false }
+        : {}),
     ...(q
       ? {
           OR: [
@@ -33,7 +53,9 @@ export async function GET(req: Request) {
       : {}),
   };
 
-  const limit = limitParam ? Math.min(200, Math.max(1, Number(limitParam) || 20)) : 0;
+  const limit = limitParam
+    ? Math.min(200, Math.max(1, Number(limitParam) || 20))
+    : 500;
   const page = pageParam ? Math.max(1, Number(pageParam) || 1) : 1;
 
   const [total, students] = await Promise.all([
@@ -45,7 +67,8 @@ export async function GET(req: Request) {
         user: { select: { username: true, isActive: true, mustChangePassword: true } },
       },
       orderBy: [{ admissionNo: "desc" }],
-      ...(limit > 0 ? { skip: (page - 1) * limit, take: limit } : {}),
+      skip: (page - 1) * limit,
+      take: limit,
     }),
   ]);
 
@@ -53,8 +76,8 @@ export async function GET(req: Request) {
     students,
     total,
     page,
-    limit: limit || total,
-    totalPages: limit > 0 ? Math.max(1, Math.ceil(total / limit)) : 1,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
   });
 }
 
@@ -84,7 +107,7 @@ export async function POST(req: Request) {
     const prefix = settings?.admissionPrefix ?? "ADM";
     const year = new Date().getFullYear();
 
-    const defaultTempPassword = "Student123!";
+    const defaultTempPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(defaultTempPassword);
 
     const created = await prisma.$transaction(async (tx) => {
@@ -108,6 +131,11 @@ export async function POST(req: Request) {
       });
 
       const admissionDate = d.admissionDate ? new Date(d.admissionDate) : new Date();
+      const usesBus = Boolean(d.usesBus);
+      const busFeeCents =
+        usesBus && typeof d.busFee === "number" && d.busFee > 0
+          ? dollarsToCents(d.busFee)
+          : null;
       const student = await tx.student.create({
         data: {
           userId: studentUser.id,
@@ -120,6 +148,8 @@ export async function POST(req: Request) {
           guardianPhone: d.guardianPhone,
           address: d.address || null,
           previousSchool: d.previousSchool || null,
+          usesBus,
+          busFeeCents,
           classId: d.classId,
           admissionDate,
         },

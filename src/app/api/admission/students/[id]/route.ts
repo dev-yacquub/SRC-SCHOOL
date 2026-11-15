@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireApiRole } from "@/lib/auth";
+import { dollarsToCents } from "@/lib/domain";
 import { studentUpdateSchema } from "@/lib/validation";
 import { logAudit } from "@/lib/audit";
 
@@ -59,6 +60,19 @@ export async function PATCH(
       return NextResponse.json({ error: "Student not found" }, { status: 404 });
     }
 
+    const nextAdmissionNo = d.admissionNo ? d.admissionNo.trim().toUpperCase() : undefined;
+    if (nextAdmissionNo && nextAdmissionNo !== existing.admissionNo) {
+      const dupAdm = await prisma.student.findUnique({
+        where: { admissionNo: nextAdmissionNo },
+      });
+      if (dupAdm && dupAdm.id !== id) {
+        return NextResponse.json(
+          { error: `Admission number ${nextAdmissionNo} is already in use` },
+          { status: 409 }
+        );
+      }
+    }
+
     let targetClassYearId = existing.class.academicYearId;
     if (d.classId && d.classId !== existing.classId) {
       const targetClass = await prisma.schoolClass.findUnique({
@@ -74,11 +88,21 @@ export async function PATCH(
     const classChanged = d.classId !== undefined && d.classId !== existing.classId;
     const nextStatus = d.status ?? existing.status;
     const nextClassId = d.classId ?? existing.classId;
+    const nextUsesBus = d.usesBus !== undefined ? d.usesBus : existing.usesBus;
+    const nextBusFeeCents =
+      !nextUsesBus
+        ? null
+        : d.busFee !== undefined
+          ? d.busFee && d.busFee > 0
+            ? dollarsToCents(d.busFee)
+            : null
+          : existing.busFeeCents;
 
     const updated = await prisma.$transaction(async (tx) => {
       const stu = await tx.student.update({
         where: { id },
         data: {
+          ...(nextAdmissionNo ? { admissionNo: nextAdmissionNo } : {}),
           ...(d.fullName ? { fullName: d.fullName } : {}),
           ...(d.gender ? { gender: d.gender } : {}),
           ...(d.dob !== undefined ? { dob: d.dob ? new Date(d.dob) : null } : {}),
@@ -92,6 +116,8 @@ export async function PATCH(
           ...(d.previousSchool !== undefined
             ? { previousSchool: d.previousSchool || null }
             : {}),
+          usesBus: nextUsesBus,
+          busFeeCents: nextBusFeeCents,
           ...(d.classId ? { classId: d.classId } : {}),
           ...(d.status ? { status: d.status } : {}),
           ...(d.statusReason !== undefined
@@ -153,6 +179,56 @@ export async function PATCH(
     console.error("Update student error:", err);
     return NextResponse.json(
       { error: "Failed to update student" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  _req: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { user, error } = await requireApiRole(["ADMISSION", "ADMIN"]);
+  if (error || !user) return error;
+
+  const { id } = await context.params;
+  try {
+    const existing = await prisma.student.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Student not found" }, { status: 404 });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.payment.deleteMany({ where: { invoice: { studentId: id } } });
+      await tx.invoiceItem.deleteMany({ where: { invoice: { studentId: id } } });
+      await tx.invoice.deleteMany({ where: { studentId: id } });
+      await tx.mark.deleteMany({ where: { studentId: id } });
+      await tx.reportRemark.deleteMany({ where: { studentId: id } });
+      await tx.attendance.deleteMany({ where: { studentId: id } });
+      await tx.enrollment.deleteMany({ where: { studentId: id } });
+      await tx.student.delete({ where: { id } });
+      await tx.auditLog.deleteMany({ where: { userId: existing.userId } });
+      await tx.user.delete({ where: { id: existing.userId } });
+    });
+
+    await logAudit({
+      userId: user.userId,
+      action: "STUDENT_DELETED",
+      entityType: "Student",
+      entityId: id,
+      details: {
+        admissionNo: existing.admissionNo,
+        fullName: existing.fullName,
+      },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("Delete student error:", err);
+    return NextResponse.json(
+      { error: "Failed to delete student" },
       { status: 500 }
     );
   }

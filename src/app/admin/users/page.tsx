@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Card, PageHeader, StatusBadge } from "@/components/ui";
-import { Plus, KeyRound, Pencil, X } from "lucide-react";
+import { Plus, KeyRound, Pencil, Trash2, X } from "lucide-react";
 
 type StaffUser = {
   id: string;
@@ -101,6 +101,7 @@ export default function AdminUsersPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        username: editing.username,
         fullName: editing.fullName,
         email: editing.email,
         role: editing.role,
@@ -153,6 +154,30 @@ export default function AdminUsersPage() {
       type: "ok",
       text: `Password reset for @${u.username}.`,
     });
+  }
+
+  async function deleteUser(u: StaffUser) {
+    if (
+      !window.confirm(
+        `Are you sure you want to permanently delete ${u.fullName} (@${u.username})?`
+      )
+    ) {
+      return;
+    }
+    setMessage(null);
+    const res = await fetch(`/api/admin/users/${u.id}`, {
+      method: "DELETE",
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setMessage({ type: "err", text: data.error ?? "Failed to delete user" });
+      return;
+    }
+    setMessage({
+      type: "ok",
+      text: `Deleted user @${u.username}.`,
+    });
+    loadUsers();
   }
 
   return (
@@ -366,6 +391,14 @@ export default function AdminUsersPage() {
                           >
                             {u.isActive ? "Deactivate" : "Activate"}
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteUser(u)}
+                            title="Delete user"
+                            className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 p-1.5 text-rose-700 hover:bg-rose-100"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -393,6 +426,20 @@ export default function AdminUsersPage() {
               </button>
             </div>
             <form onSubmit={handleSaveEdit} className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-700">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editing.username}
+                  onChange={(e) =>
+                    setEditing({ ...editing, username: e.target.value })
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-700">
                   Full Name

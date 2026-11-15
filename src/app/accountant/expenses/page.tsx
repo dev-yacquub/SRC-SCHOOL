@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Card, PageHeader, StatCard } from "@/components/ui";
 import { formatCurrency } from "@/lib/domain";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 
 type ExpenseRow = {
   id: string;
@@ -16,6 +16,7 @@ type ExpenseRow = {
 
 export default function AccountantExpensesPage() {
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("Supplies");
   const [amount, setAmount] = useState("");
@@ -42,6 +43,7 @@ export default function AccountantExpensesPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        ...(editingId ? { id: editingId } : {}),
         title,
         category,
         amount: Number(amount),
@@ -50,16 +52,19 @@ export default function AccountantExpensesPage() {
       }),
     });
     if (res.ok) {
+      setEditingId(null);
       setTitle("");
       setAmount("");
       setNote("");
-      setMsg("Expense recorded.");
+      setMsg(editingId ? "Expense updated." : "Expense recorded.");
       loadExpenses();
     }
   }
 
   async function handleDelete(id: string) {
+    if (!window.confirm("Delete this expense entry?")) return;
     await fetch(`/api/accountant/expenses?id=${id}`, { method: "DELETE" });
+    if (editingId === id) setEditingId(null);
     loadExpenses();
   }
 
@@ -157,12 +162,28 @@ export default function AccountantExpensesPage() {
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
-            <button
-              type="submit"
-              className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-            >
-              Add Expense
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                className="flex-1 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              >
+                {editingId ? "Update Expense" : "Add Expense"}
+              </button>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingId(null);
+                    setTitle("");
+                    setAmount("");
+                    setNote("");
+                  }}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
           </form>
         </Card>
 
@@ -175,7 +196,7 @@ export default function AccountantExpensesPage() {
                   <th className="py-2 pr-3">Title</th>
                   <th className="py-2 pr-3">Category</th>
                   <th className="py-2 pr-3 text-right">Amount</th>
-                  <th className="py-2 text-right">Remove</th>
+                  <th className="py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -186,19 +207,42 @@ export default function AccountantExpensesPage() {
                     </td>
                     <td className="py-2.5 pr-3 font-medium text-slate-900">
                       {ex.title}
+                      {ex.note && (
+                        <span className="block text-xs font-normal text-slate-500">
+                          {ex.note}
+                        </span>
+                      )}
                     </td>
                     <td className="py-2.5 pr-3 text-slate-600">{ex.category}</td>
                     <td className="py-2.5 pr-3 text-right font-semibold text-rose-700 tabular-nums">
                       {formatCurrency(ex.amountCents)}
                     </td>
                     <td className="py-2.5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(ex.id)}
-                        className="text-slate-400 hover:text-rose-600"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingId(ex.id);
+                            setTitle(ex.title);
+                            setCategory(ex.category);
+                            setAmount((ex.amountCents / 100).toFixed(2));
+                            setDate(ex.date ? ex.date.slice(0, 10) : "");
+                            setNote(ex.note ?? "");
+                          }}
+                          className="text-slate-400 hover:text-indigo-600"
+                          title="Edit expense"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(ex.id)}
+                          className="text-slate-400 hover:text-rose-600"
+                          title="Delete expense"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { hashPassword, requireApiRole } from "@/lib/auth";
+import {
+  generateTemporaryPassword,
+  hashPassword,
+  requireApiRole,
+} from "@/lib/auth";
 import { studentAccountActionSchema } from "@/lib/validation";
 import { logAudit } from "@/lib/audit";
 
@@ -24,7 +28,17 @@ export async function POST(
 
     const student = await prisma.student.findUnique({
       where: { id },
-      include: { user: { select: { id: true, role: true, isActive: true, username: true } } },
+      include: {
+        user: {
+          select: {
+            id: true,
+            role: true,
+            isActive: true,
+            username: true,
+            lastLoginAt: true,
+          },
+        },
+      },
     });
     if (!student || student.user.role !== "STUDENT") {
       return NextResponse.json({ error: "Student account not found" }, { status: 404 });
@@ -35,7 +49,12 @@ export async function POST(
       const nextActive = d.isActive ?? !student.user.isActive;
       await prisma.user.update({
         where: { id: student.userId },
-        data: { isActive: nextActive },
+        data: {
+          isActive: nextActive,
+          ...(student.user.lastLoginAt && !nextActive
+            ? { lastLoginAt: new Date(Date.now() + 2000) }
+            : {}),
+        },
       });
       await logAudit({
         userId: user.userId,
@@ -47,11 +66,20 @@ export async function POST(
       return NextResponse.json({ isActive: nextActive });
     }
 
-    const tempPassword = d.newPassword && d.newPassword.length >= 6 ? d.newPassword : "Student123!";
+    const tempPassword =
+      d.newPassword && d.newPassword.trim().length >= 8
+        ? d.newPassword.trim()
+        : generateTemporaryPassword();
     const passwordHash = await hashPassword(tempPassword);
     await prisma.user.update({
       where: { id: student.userId },
-      data: { passwordHash, mustChangePassword: true },
+      data: {
+        passwordHash,
+        mustChangePassword: true,
+        ...(student.user.lastLoginAt
+          ? { lastLoginAt: new Date(Date.now() + 2000) }
+          : {}),
+      },
     });
 
     await logAudit({

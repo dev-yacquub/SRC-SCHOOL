@@ -45,6 +45,12 @@ export async function GET(req: Request) {
     assignments.find(
       (a) => a.classId === classId && a.subjectId === subjectId
     ) ??
+    (classId
+      ? assignments.find((a) => a.classId === classId)
+      : undefined) ??
+    (subjectId
+      ? assignments.find((a) => a.subjectId === subjectId)
+      : undefined) ??
     assignments[0] ??
     null;
 

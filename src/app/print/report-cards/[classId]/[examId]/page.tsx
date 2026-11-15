@@ -99,11 +99,11 @@ export default async function BulkPrintClassReportCardsPage({
 
   const attByStudent = new Map<
     string,
-    { status: "PRESENT" | "ABSENT" | "LATE" }[]
+    { status: "PRESENT" | "ABSENT" }[]
   >();
   for (const a of attendanceRows) {
     const arr = attByStudent.get(a.studentId) ?? [];
-    arr.push({ status: a.status });
+    arr.push({ status: a.status === "ABSENT" ? "ABSENT" : "PRESENT" });
     attByStudent.set(a.studentId, arr);
   }
 

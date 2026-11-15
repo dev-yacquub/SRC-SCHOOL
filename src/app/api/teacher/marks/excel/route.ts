@@ -121,6 +121,18 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      return NextResponse.json(
+        { error: "Only .xlsx Excel files are supported" },
+        { status: 400 }
+      );
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: "Excel file must be 5 MB or smaller" },
+        { status: 400 }
+      );
+    }
 
     const scopeErr = await assertTeacherScope(user, classId, subjectId);
     if (scopeErr) return scopeErr;
@@ -150,6 +162,12 @@ export async function POST(req: Request) {
     if (!sheet) {
       return NextResponse.json(
         { error: "No worksheet found in uploaded file" },
+        { status: 400 }
+      );
+    }
+    if (sheet.rowCount > 501) {
+      return NextResponse.json(
+        { error: "Marks spreadsheet exceeds maximum of 500 student rows" },
         { status: 400 }
       );
     }

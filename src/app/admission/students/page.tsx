@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, PageHeader, StatusBadge } from "@/components/ui";
-import { Search, Pencil, Printer, X, Download, Eye, Users } from "lucide-react";
+import { Search, Pencil, Printer, Trash2, X, Download, Eye, Users } from "lucide-react";
 
 type StudentRow = {
   id: string;
@@ -20,6 +20,9 @@ type StudentRow = {
   status: "ACTIVE" | "TRANSFERRED" | "WITHDRAWN" | "GRADUATED";
   statusReason: string | null;
   classId: string;
+  usesBus?: boolean;
+  busFeeCents?: number | null;
+  busFeeInput?: string;
   class: { id: string; name: string };
   user: { username: string; isActive: boolean };
 };
@@ -89,6 +92,11 @@ export default function AdmissionStudentsPage() {
       ...s,
       dob: s.dob ? s.dob.slice(0, 10) : "",
       admissionDate: s.admissionDate ? s.admissionDate.slice(0, 10) : "",
+      usesBus: Boolean(s.usesBus),
+      busFeeInput:
+        s.busFeeCents && s.busFeeCents > 0
+          ? (s.busFeeCents / 100).toFixed(2)
+          : "",
     });
   }
 
@@ -115,6 +123,7 @@ export default function AdmissionStudentsPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        admissionNo: editing.admissionNo,
         fullName: editing.fullName,
         gender: editing.gender,
         dob: editing.dob ?? "",
@@ -127,6 +136,11 @@ export default function AdmissionStudentsPage() {
         classId: editing.classId,
         status: editing.status,
         statusReason: editing.statusReason ?? "",
+        usesBus: Boolean(editing.usesBus),
+        busFee:
+          editing.usesBus && editing.busFeeInput?.trim()
+            ? Number(editing.busFeeInput)
+            : null,
       }),
     });
     const out = await res.json();
@@ -137,6 +151,26 @@ export default function AdmissionStudentsPage() {
     }
     setEditing(null);
     setMsg(`Updated record for ${editing.fullName}.`);
+    loadStudents();
+  }
+
+  async function deleteStudent(s: StudentRow) {
+    if (
+      !window.confirm(
+        `Are you sure you want to permanently delete ${s.fullName} (${s.admissionNo}) and all their records?`
+      )
+    ) {
+      return;
+    }
+    const res = await fetch(`/api/admission/students/${s.id}`, {
+      method: "DELETE",
+    });
+    const out = await res.json();
+    if (!res.ok) {
+      window.alert(out.error ?? "Failed to delete student");
+      return;
+    }
+    setMsg(`Deleted student ${s.fullName} (${s.admissionNo}).`);
     loadStudents();
   }
 
@@ -324,6 +358,11 @@ export default function AdmissionStudentsPage() {
                             >
                               {s.fullName}
                             </Link>
+                            {s.usesBus && (
+                              <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                Bus
+                              </span>
+                            )}
                             <p className="text-xs text-slate-500">
                               @{s.user.username} · {s.gender}
                               {!s.user.isActive && (
@@ -365,6 +404,14 @@ export default function AdmissionStudentsPage() {
                             <Printer className="h-3 w-3" />
                             Docs
                           </Link>
+                          <button
+                            type="button"
+                            onClick={() => deleteStudent(s)}
+                            title="Delete student"
+                            className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 p-1.5 text-rose-700 hover:bg-rose-100"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -424,6 +471,20 @@ export default function AdmissionStudentsPage() {
             )}
             <form onSubmit={saveEdit} className="space-y-3.5">
               <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">
+                    Admission No.
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editing.admissionNo}
+                    onChange={(e) =>
+                      setEditing({ ...editing, admissionNo: e.target.value })
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm uppercase"
+                  />
+                </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-700">
                     Full Name
@@ -593,6 +654,40 @@ export default function AdmissionStudentsPage() {
                     }
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3.5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <label className="flex cursor-pointer items-center gap-2.5 text-sm font-semibold text-amber-900">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editing.usesBus)}
+                      onChange={(e) =>
+                        setEditing({ ...editing, usesBus: e.target.checked })
+                      }
+                      className="h-4 w-4 rounded border-amber-400 text-amber-600"
+                    />
+                    Student uses School Bus (incurs Bus Fee on invoices)
+                  </label>
+                  {editing.usesBus && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium text-amber-900">
+                        Custom Bus Fee Override:
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editing.busFeeInput ?? ""}
+                        onChange={(e) =>
+                          setEditing({ ...editing, busFeeInput: e.target.value })
+                        }
+                        placeholder="Class default"
+                        className="w-32 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 

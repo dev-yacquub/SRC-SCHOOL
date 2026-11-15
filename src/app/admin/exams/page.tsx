@@ -3,14 +3,16 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, PageHeader, StatusBadge } from "@/components/ui";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 
 type Exam = {
   id: string;
+  termId?: string;
   name: string;
   maxMarks: number;
   isLocked: boolean;
   isPublished: boolean;
-  term: { name: string; academicYear: { name: string } };
+  term: { id?: string; name: string; academicYear: { name: string } };
   _count: { marks: number };
 };
 
@@ -43,6 +45,7 @@ export default function AdminExamsPage() {
   const [reportStudentId, setReportStudentId] = useState("");
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  const [editingExamId, setEditingExamId] = useState<string | null>(null);
   const [termId, setTermId] = useState("");
   const [examName, setExamName] = useState("");
   const [maxMarks, setMaxMarks] = useState("100");
@@ -90,6 +93,31 @@ export default function AdminExamsPage() {
     return true;
   }
 
+  async function deleteExam(ex: Exam) {
+    if (
+      !window.confirm(
+        `Delete exam "${ex.name}" and all ${ex._count.marks} recorded marks for it?`
+      )
+    ) {
+      return;
+    }
+    setMsg(null);
+    const res = await fetch(`/api/admin/exams?id=${ex.id}`, {
+      method: "DELETE",
+    });
+    const out = await res.json();
+    if (!res.ok) {
+      setMsg({ type: "err", text: out.error ?? "Failed to delete exam" });
+      return;
+    }
+    if (editingExamId === ex.id) {
+      setEditingExamId(null);
+      setExamName("");
+    }
+    setMsg({ type: "ok", text: `Deleted exam "${ex.name}".` });
+    await loadAll();
+  }
+
   const activeCompletion =
     completion.find((c) => c.examId === selectedExamId)?.items ?? [];
 
@@ -113,16 +141,23 @@ export default function AdminExamsPage() {
       )}
 
       <div className="mb-6 grid gap-6 lg:grid-cols-3">
-        <Card title="Create Exam" className="lg:col-span-1">
+        <Card title={editingExamId ? "Edit Exam" : "Create Exam"} className="lg:col-span-1">
           <form
             onSubmit={async (e) => {
               e.preventDefault();
-              const ok = await postAction("createExam", {
-                termId,
-                name: examName,
-                maxMarks: Number(maxMarks),
-              });
-              if (ok) setExamName("");
+              const ok = await postAction(
+                editingExamId ? "updateExam" : "createExam",
+                {
+                  ...(editingExamId ? { id: editingExamId } : {}),
+                  termId,
+                  name: examName,
+                  maxMarks: Number(maxMarks),
+                }
+              );
+              if (ok) {
+                setEditingExamId(null);
+                setExamName("");
+              }
             }}
             className="space-y-3"
           >
@@ -137,7 +172,7 @@ export default function AdminExamsPage() {
               >
                 {terms.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.name} ({t.academicYear.name})
+                    {t.name} ({t.academicYear?.name ?? "—"})
                   </option>
                 ))}
               </select>
@@ -169,12 +204,27 @@ export default function AdminExamsPage() {
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
-            <button
-              type="submit"
-              className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-            >
-              Create Exam
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                className="flex-1 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              >
+                {editingExamId ? "Update Exam" : "Create Exam"}
+              </button>
+              {editingExamId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingExamId(null);
+                    setExamName("");
+                    setMaxMarks("100");
+                  }}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
           </form>
         </Card>
 
@@ -188,7 +238,7 @@ export default function AdminExamsPage() {
                 <div>
                   <p className="font-semibold text-slate-900">{ex.name}</p>
                   <p className="text-xs text-slate-500">
-                    {ex.term.name} · Max {ex.maxMarks} · {ex._count.marks} marks
+                    {ex.term?.name ?? "—"} · Max {ex.maxMarks} · {ex._count?.marks ?? 0} marks
                     recorded
                   </p>
                 </div>
@@ -223,6 +273,30 @@ export default function AdminExamsPage() {
                     }`}
                   >
                     {ex.isPublished ? "Unpublish" : "Publish Results"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingExamId(ex.id);
+                      if (ex.termId || ex.term.id) {
+                        setTermId(ex.termId ?? ex.term.id ?? "");
+                      }
+                      setExamName(ex.name);
+                      setMaxMarks(String(ex.maxMarks));
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    title="Edit exam"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteExam(ex)}
+                    className="inline-flex items-center rounded-md border border-rose-200 bg-rose-50 p-1.5 text-rose-700 hover:bg-rose-100"
+                    title="Delete exam"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
@@ -287,7 +361,7 @@ export default function AdminExamsPage() {
         <Card title="Grading Scale (%)">
           <div className="space-y-2">
             {scales.map((s, idx) => (
-              <div key={idx} className="grid grid-cols-4 gap-2 text-xs">
+              <div key={idx} className="flex items-center gap-2 text-xs">
                 <input
                   type="number"
                   step="0.01"
@@ -297,7 +371,7 @@ export default function AdminExamsPage() {
                     next[idx] = { ...s, minScore: Number(e.target.value) };
                     setScales(next);
                   }}
-                  className="rounded border border-slate-300 px-2 py-1.5 tabular-nums"
+                  className="w-20 rounded border border-slate-300 px-2 py-1.5 tabular-nums"
                   placeholder="Min"
                 />
                 <input
@@ -309,7 +383,7 @@ export default function AdminExamsPage() {
                     next[idx] = { ...s, maxScore: Number(e.target.value) };
                     setScales(next);
                   }}
-                  className="rounded border border-slate-300 px-2 py-1.5 tabular-nums"
+                  className="w-20 rounded border border-slate-300 px-2 py-1.5 tabular-nums"
                   placeholder="Max"
                 />
                 <input
@@ -320,7 +394,7 @@ export default function AdminExamsPage() {
                     next[idx] = { ...s, grade: e.target.value };
                     setScales(next);
                   }}
-                  className="rounded border border-slate-300 px-2 py-1.5 font-semibold"
+                  className="w-16 rounded border border-slate-300 px-2 py-1.5 font-semibold"
                   placeholder="Grade"
                 />
                 <input
@@ -331,19 +405,45 @@ export default function AdminExamsPage() {
                     next[idx] = { ...s, remark: e.target.value };
                     setScales(next);
                   }}
-                  className="rounded border border-slate-300 px-2 py-1.5"
+                  className="flex-1 rounded border border-slate-300 px-2 py-1.5"
                   placeholder="Remark"
                 />
+                <button
+                  type="button"
+                  disabled={scales.length <= 1}
+                  onClick={() =>
+                    setScales(scales.filter((_, i) => i !== idx))
+                  }
+                  className="rounded p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30"
+                  title="Remove grade row"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </div>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={() => postAction("updateGradeScale", { scales })}
-            className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800"
-          >
-            Save Grading Scale
-          </button>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setScales([
+                  ...scales,
+                  { minScore: 0, maxScore: 49.99, grade: "F", remark: "Fail" },
+                ])
+              }
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add Grade Band
+            </button>
+            <button
+              type="button"
+              onClick={() => postAction("updateGradeScale", { scales })}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              Save Grading Scale
+            </button>
+          </div>
         </Card>
       </div>
 

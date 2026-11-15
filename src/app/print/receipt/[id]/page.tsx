@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth";
 import { getSchoolContext } from "@/lib/shell-context";
 import { formatCurrency, PAYMENT_METHOD_LABELS } from "@/lib/domain";
 import { PrintButton } from "@/components/ui";
+import SrcLogo from "@/components/SrcLogo";
 
 export default async function PrintReceiptPage({
   params,
@@ -19,6 +20,7 @@ export default async function PrintReceiptPage({
   const payment = await prisma.payment.findUnique({
     where: { id },
     include: {
+      allocations: true,
       invoice: {
         include: {
           term: true,
@@ -60,12 +62,15 @@ export default async function PrintReceiptPage({
 
       <div className="print-only-sheet mx-auto max-w-2xl rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="flex items-start justify-between border-b border-slate-200 pb-6">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">{ctx.schoolName}</h1>
-            <p className="text-xs text-slate-500">{ctx.settings?.schoolAddress}</p>
-            <p className="text-xs text-slate-500">
-              {ctx.settings?.schoolPhone} · {ctx.settings?.schoolEmail}
-            </p>
+          <div className="flex items-center gap-3">
+            <SrcLogo size={52} className="shrink-0" />
+            <div>
+              <h1 className="text-xl font-bold text-slate-900">{ctx.schoolName}</h1>
+              <p className="text-xs text-slate-500">{ctx.settings?.schoolAddress}</p>
+              <p className="text-xs text-slate-500">
+                {ctx.settings?.schoolPhone} · {ctx.settings?.schoolEmail}
+              </p>
+            </div>
           </div>
           <div className="text-right">
             <p className="text-xs font-semibold tracking-wider text-slate-400 uppercase">
@@ -108,6 +113,26 @@ export default async function PrintReceiptPage({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
+            {payment.allocations.length > 0 && (
+              <tr>
+                <td className="py-3 align-top text-slate-600">
+                  Fee Structure(s) Paid
+                </td>
+                <td className="py-3 text-right">
+                  <div className="space-y-1">
+                    {payment.allocations.map((a) => (
+                      <div
+                        key={a.id}
+                        className="font-medium text-slate-900 tabular-nums"
+                      >
+                        {a.itemName}:{" "}
+                        {formatCurrency(a.amountCents, ctx.currencySymbol)}
+                      </div>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            )}
             <tr>
               <td className="py-3 text-slate-600">Payment Method</td>
               <td className="py-3 text-right font-medium text-slate-900">

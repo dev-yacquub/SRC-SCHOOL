@@ -61,6 +61,7 @@ export async function POST(req: Request) {
     const action = body?.action as string | undefined;
 
     if (action === "createYear") {
+      const id = body?.id ? String(body.id) : undefined;
       const parsed = academicYearSchema.safeParse(body.data);
       if (!parsed.success) {
         return NextResponse.json(
@@ -69,6 +70,17 @@ export async function POST(req: Request) {
         );
       }
       const d = parsed.data;
+      if (id) {
+        const updated = await prisma.academicYear.update({
+          where: { id },
+          data: {
+            name: d.name,
+            startDate: new Date(d.startDate),
+            endDate: new Date(d.endDate),
+          },
+        });
+        return NextResponse.json({ id: updated.id });
+      }
       const created = await prisma.$transaction(async (tx) => {
         if (d.isCurrent) {
           await tx.academicYear.updateMany({ data: { isCurrent: false } });
@@ -95,6 +107,7 @@ export async function POST(req: Request) {
     }
 
     if (action === "createTerm") {
+      const id = body?.id ? String(body.id) : undefined;
       const parsed = termSchema.safeParse(body.data);
       if (!parsed.success) {
         return NextResponse.json(
@@ -103,6 +116,27 @@ export async function POST(req: Request) {
         );
       }
       const d = parsed.data;
+      const yearExists = await prisma.academicYear.findUnique({
+        where: { id: d.academicYearId },
+      });
+      if (!yearExists) {
+        return NextResponse.json(
+          { error: "Please create and select a valid Academic Year first" },
+          { status: 400 }
+        );
+      }
+      if (id) {
+        const updated = await prisma.term.update({
+          where: { id },
+          data: {
+            academicYearId: d.academicYearId,
+            name: d.name,
+            startDate: new Date(d.startDate),
+            endDate: new Date(d.endDate),
+          },
+        });
+        return NextResponse.json({ id: updated.id });
+      }
       const created = await prisma.$transaction(async (tx) => {
         if (d.isCurrent) {
           await tx.term.updateMany({ data: { isCurrent: false } });
@@ -130,6 +164,7 @@ export async function POST(req: Request) {
     }
 
     if (action === "createClass") {
+      const id = body?.id ? String(body.id) : undefined;
       const parsed = classSchema.safeParse(body.data);
       if (!parsed.success) {
         return NextResponse.json(
@@ -137,11 +172,28 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
+      const yearExists = await prisma.academicYear.findUnique({
+        where: { id: parsed.data.academicYearId },
+      });
+      if (!yearExists) {
+        return NextResponse.json(
+          { error: "Please create and select a valid Academic Year first" },
+          { status: 400 }
+        );
+      }
+      if (id) {
+        const updated = await prisma.schoolClass.update({
+          where: { id },
+          data: parsed.data,
+        });
+        return NextResponse.json({ id: updated.id });
+      }
       const created = await prisma.schoolClass.create({ data: parsed.data });
       return NextResponse.json({ id: created.id }, { status: 201 });
     }
 
     if (action === "createSubject") {
+      const id = body?.id ? String(body.id) : undefined;
       const parsed = subjectSchema.safeParse(body.data);
       if (!parsed.success) {
         return NextResponse.json(
@@ -149,11 +201,19 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
+      if (id) {
+        const updated = await prisma.subject.update({
+          where: { id },
+          data: parsed.data,
+        });
+        return NextResponse.json({ id: updated.id });
+      }
       const created = await prisma.subject.create({ data: parsed.data });
       return NextResponse.json({ id: created.id }, { status: 201 });
     }
 
     if (action === "assignClassSubject") {
+      const id = body?.id ? String(body.id) : undefined;
       const parsed = classSubjectSchema.safeParse(body.data);
       if (!parsed.success) {
         return NextResponse.json(
@@ -162,6 +222,13 @@ export async function POST(req: Request) {
         );
       }
       const d = parsed.data;
+      if (id) {
+        const updated = await prisma.classSubject.update({
+          where: { id },
+          data: d,
+        });
+        return NextResponse.json({ id: updated.id });
+      }
       const saved = await prisma.classSubject.upsert({
         where: {
           classId_subjectId: {
@@ -198,10 +265,16 @@ export async function DELETE(req: Request) {
     }
 
     if (kind === "classSubject") {
+      await prisma.timetableSlot.deleteMany({ where: { classSubjectId: id } });
       await prisma.classSubject.delete({ where: { id } });
       return NextResponse.json({ ok: true });
     }
     if (kind === "subject") {
+      await prisma.timetableSlot.deleteMany({
+        where: { classSubject: { subjectId: id } },
+      });
+      await prisma.classSubject.deleteMany({ where: { subjectId: id } });
+      await prisma.mark.deleteMany({ where: { subjectId: id } });
       await prisma.subject.delete({ where: { id } });
       return NextResponse.json({ ok: true });
     }
@@ -213,7 +286,40 @@ export async function DELETE(req: Request) {
           { status: 400 }
         );
       }
+      await prisma.timetableSlot.deleteMany({
+        where: { classSubject: { classId: id } },
+      });
+      await prisma.classSubject.deleteMany({ where: { classId: id } });
+      await prisma.feeStructure.deleteMany({ where: { classId: id } });
+      await prisma.enrollment.deleteMany({ where: { classId: id } });
       await prisma.schoolClass.delete({ where: { id } });
+      return NextResponse.json({ ok: true });
+    }
+    if (kind === "term") {
+      const invoiceCount = await prisma.invoice.count({ where: { termId: id } });
+      if (invoiceCount > 0) {
+        return NextResponse.json(
+          { error: "Cannot delete a term that has fee invoices" },
+          { status: 400 }
+        );
+      }
+      await prisma.feeStructure.deleteMany({ where: { termId: id } });
+      await prisma.exam.deleteMany({ where: { termId: id } });
+      await prisma.term.delete({ where: { id } });
+      return NextResponse.json({ ok: true });
+    }
+    if (kind === "year") {
+      const classCount = await prisma.schoolClass.count({
+        where: { academicYearId: id },
+      });
+      if (classCount > 0) {
+        return NextResponse.json(
+          { error: "Cannot delete an academic year that still has classes" },
+          { status: 400 }
+        );
+      }
+      await prisma.term.deleteMany({ where: { academicYearId: id } });
+      await prisma.academicYear.delete({ where: { id } });
       return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ error: "Unsupported kind" }, { status: 400 });

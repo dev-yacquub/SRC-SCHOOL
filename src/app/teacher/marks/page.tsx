@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { calculateLetterGrade } from "@/lib/domain";
 import { Card, PageHeader } from "@/components/ui";
@@ -144,6 +144,51 @@ export default function TeacherMarksPage() {
   const canEdit = Boolean(
     selectedExam && selectedAssignment && (!selectedExam.isLocked || isAdmin)
   );
+
+  const classOptions = useMemo(() => {
+    const map = new Map<string, AssignmentOption["class"]>();
+    for (const a of assignments) {
+      if (!map.has(a.class.id)) {
+        map.set(a.class.id, a.class);
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => a.level - b.level || a.name.localeCompare(b.name)
+    );
+  }, [assignments]);
+
+  const subjectOptions = useMemo(() => {
+    const map = new Map<string, AssignmentOption["subject"]>();
+    for (const a of assignments) {
+      if (a.classId === classId && !map.has(a.subject.id)) {
+        map.set(a.subject.id, a.subject);
+      }
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  }, [assignments, classId]);
+
+  /**
+   * Switches class while keeping the current subject if that class has it;
+   * otherwise selects the first subject assigned to the new class.
+   */
+  function handleClassChange(nextClassId: string) {
+    if (!nextClassId) return;
+    const sameSubject = assignments.find(
+      (a) => a.classId === nextClassId && a.subjectId === subjectId
+    );
+    const firstForClass = assignments.find((a) => a.classId === nextClassId);
+    const nextSubjectId =
+      sameSubject?.subjectId ?? firstForClass?.subjectId ?? "";
+    void loadMarks(examId, nextClassId, nextSubjectId);
+  }
+
+  /** Switches subject within the currently selected class. */
+  function handleSubjectChange(nextSubjectId: string) {
+    if (!classId || !nextSubjectId) return;
+    void loadMarks(examId, classId, nextSubjectId);
+  }
 
   const hasUnsavedChanges = students.some((s) => {
     const cur = scores[s.id] ?? { score: "", remark: "" };
@@ -404,24 +449,45 @@ export default function TeacherMarksPage() {
 
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600">
-                Class &amp; Subject
+                Class
               </label>
               <select
-                value={selectedAssignment ? `${classId}:${subjectId}` : ""}
-                onChange={(e) => {
-                  const [cId, sId] = e.target.value.split(":");
-                  if (cId && sId) void loadMarks(examId, cId, sId);
-                }}
-                className="min-h-[42px] w-full max-w-full rounded-lg border border-slate-300 px-3 py-2 text-base sm:w-auto sm:text-sm"
+                value={classId}
+                disabled={classOptions.length === 0}
+                onChange={(e) => handleClassChange(e.target.value)}
+                className="min-h-[42px] w-full max-w-full rounded-lg border border-slate-300 px-3 py-2 text-base disabled:bg-slate-50 sm:w-auto sm:text-sm"
               >
-                {assignments.map((a) => (
-                  <option
-                    key={`${a.classId}:${a.subjectId}`}
-                    value={`${a.classId}:${a.subjectId}`}
-                  >
-                    {a.class.name} · {a.subject.name} ({a.subject.code})
-                  </option>
-                ))}
+                {classOptions.length === 0 ? (
+                  <option value="">No classes available</option>
+                ) : (
+                  classOptions.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">
+                Subject
+              </label>
+              <select
+                value={subjectId}
+                disabled={subjectOptions.length === 0}
+                onChange={(e) => handleSubjectChange(e.target.value)}
+                className="min-h-[42px] w-full max-w-full rounded-lg border border-slate-300 px-3 py-2 text-base disabled:bg-slate-50 sm:w-auto sm:text-sm"
+              >
+                {subjectOptions.length === 0 ? (
+                  <option value="">No subjects available</option>
+                ) : (
+                  subjectOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.code})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 

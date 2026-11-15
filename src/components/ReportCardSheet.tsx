@@ -1,5 +1,6 @@
 import React from "react";
 import { getOrdinalSuffix } from "@/lib/domain";
+import SrcLogo from "@/components/SrcLogo";
 
 export type ReportCardSubjectRow = {
   subjectName: string;
@@ -39,7 +40,6 @@ export type ReportCardSheetProps = {
   attendance: {
     total: number;
     present: number;
-    late: number;
     absent: number;
     ratePercent: number;
   };
@@ -78,6 +78,7 @@ export function ReportCardSheet({
       }`}
     >
       <div className="border-b-2 border-slate-900 pb-4 text-center">
+        <SrcLogo size={64} className="mx-auto mb-2" />
         <div className="flex items-center justify-center gap-2">
           <h1 className="text-2xl font-bold text-slate-900 uppercase">
             {schoolName}
@@ -133,7 +134,7 @@ export function ReportCardSheet({
             <span className="text-xs text-slate-500">Attendance:</span>{" "}
             <strong className="block text-slate-900 tabular-nums">
               {attendance.total > 0
-                ? `${attendance.present + attendance.late}/${attendance.total} (${attendance.ratePercent}%)`
+                ? `${attendance.present}/${attendance.total} (${attendance.ratePercent}%)`
                 : "No logs"}
             </strong>
           </div>

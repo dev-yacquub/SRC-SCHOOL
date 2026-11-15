@@ -94,7 +94,6 @@ export function StatusBadge({ value }: { value: string }) {
     PRESENT: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
     PUBLISHED: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
     PARTIAL: "bg-amber-50 text-amber-700 ring-amber-600/20",
-    LATE: "bg-amber-50 text-amber-700 ring-amber-600/20",
     LOCKED: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
     GRADUATED: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
     UNPAID: "bg-rose-50 text-rose-700 ring-rose-600/20",

@@ -1,7 +1,7 @@
 import React from "react";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
-import { summarizeAttendance } from "@/lib/domain";
+import { formatShiftLabel, summarizeAttendance } from "@/lib/domain";
 import { Card, PageHeader, StatCard, StatusBadge } from "@/components/ui";
 
 export default async function StudentAttendancePage() {
@@ -13,7 +13,7 @@ export default async function StudentAttendancePage() {
   const records = student
     ? await prisma.attendance.findMany({
         where: { studentId: student.id },
-        orderBy: { date: "desc" },
+        orderBy: [{ date: "desc" }, { shift: "asc" }],
       })
     : [];
 
@@ -26,7 +26,24 @@ export default async function StudentAttendancePage() {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOffset = new Date(year, month, 1).getDay();
 
-  const statusByDate = new Map(records.map((r) => [r.date, r.status]));
+  const normalizeStatus = (s: string) => (s === "ABSENT" ? "ABSENT" : "PRESENT");
+
+  const statusByDate = new Map<
+    string,
+    { SHIFT_A?: string; SHIFT_B?: string; overall: string }
+  >();
+  for (const r of records) {
+    const st = normalizeStatus(r.status);
+    const cur = statusByDate.get(r.date) ?? { overall: st };
+    if (r.shift === "SHIFT_B") {
+      cur.SHIFT_B = st;
+    } else {
+      cur.SHIFT_A = st;
+    }
+    const statuses = [cur.SHIFT_A, cur.SHIFT_B].filter(Boolean);
+    cur.overall = statuses.includes("ABSENT") ? "ABSENT" : "PRESENT";
+    statusByDate.set(r.date, cur);
+  }
   const calendarCells: (number | null)[] = [
     ...Array(firstDayOffset).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
@@ -34,7 +51,6 @@ export default async function StudentAttendancePage() {
 
   const statusCellStyle: Record<string, string> = {
     PRESENT: "border-emerald-200 bg-emerald-50 text-emerald-800",
-    LATE: "border-amber-200 bg-amber-50 text-amber-800",
     ABSENT: "border-rose-200 bg-rose-50 text-rose-800",
   };
 
@@ -42,17 +58,16 @@ export default async function StudentAttendancePage() {
     <div>
       <PageHeader
         title="My Attendance"
-        subtitle="Your monthly attendance calendar, attendance rate, and daily log"
+        subtitle="Your monthly attendance calendar, attendance rate, and daily Shift A & Shift B log"
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard
           label="Attendance Rate"
           value={summary.total > 0 ? `${summary.ratePercent}%` : "—"}
           tone="indigo"
         />
         <StatCard label="Present" value={summary.present} tone="emerald" />
-        <StatCard label="Late" value={summary.late} tone="amber" />
         <StatCard label="Absent" value={summary.absent} tone="rose" />
       </div>
 
@@ -67,7 +82,15 @@ export default async function StudentAttendancePage() {
             {calendarCells.map((day, idx) => {
               if (!day) return <div key={`empty-${idx}`} />;
               const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-              const st = statusByDate.get(dateKey);
+              const dayInfo = statusByDate.get(dateKey);
+              const st = dayInfo?.overall;
+              const label = dayInfo
+                ? dayInfo.SHIFT_A && dayInfo.SHIFT_B
+                  ? `${dayInfo.SHIFT_A.slice(0, 1)}/${dayInfo.SHIFT_B.slice(0, 1)}`
+                  : dayInfo.SHIFT_A
+                    ? `A:${dayInfo.SHIFT_A.slice(0, 1)}`
+                    : `B:${dayInfo.SHIFT_B?.slice(0, 1) ?? "—"}`
+                : "—";
               return (
                 <div
                   key={dateKey}
@@ -78,17 +101,15 @@ export default async function StudentAttendancePage() {
                   }`}
                 >
                   <p className="font-semibold tabular-nums">{day}</p>
-                  <p className="mt-0.5 text-[10px] font-medium">
-                    {st ? st.slice(0, 1) : "—"}
-                  </p>
+                  <p className="mt-0.5 text-[10px] font-medium">{label}</p>
                 </div>
               );
             })}
           </div>
           <div className="mt-4 flex flex-wrap gap-3 text-xs text-slate-500">
             <span>P = Present</span>
-            <span>L = Late</span>
             <span>A = Absent</span>
+            <span>(Shift A / Shift B)</span>
           </div>
         </Card>
 
@@ -102,15 +123,15 @@ export default async function StudentAttendancePage() {
                   key={r.id}
                   className="flex items-center justify-between py-2.5 text-sm"
                 >
-                  <div>
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-slate-900 tabular-nums">
                       {r.date}
                     </span>
-                    {r.note && (
-                      <span className="ml-3 text-xs text-slate-500">({r.note})</span>
-                    )}
+                    <span className="rounded bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                      {formatShiftLabel(r.shift)}
+                    </span>
                   </div>
-                  <StatusBadge value={r.status} />
+                  <StatusBadge value={normalizeStatus(r.status)} />
                 </div>
               ))}
             </div>

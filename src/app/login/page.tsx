@@ -22,7 +22,7 @@ export default async function LoginPage() {
   return (
     <LoginForm
       needsSetup={userCount === 0}
-      initialSchoolName={ctx.settings?.schoolName ?? ""}
+      initialSchoolName={ctx.schoolName}
     />
   );
 }

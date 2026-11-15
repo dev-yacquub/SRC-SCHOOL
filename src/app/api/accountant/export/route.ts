@@ -3,12 +3,20 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { requireApiRole } from "@/lib/auth";
 
+const VALID_INVOICE_STATUSES = new Set([
+  "UNPAID",
+  "PARTIAL",
+  "PAID",
+  "CANCELLED",
+]);
+
 export async function GET(req: Request) {
   const { error } = await requireApiRole(["ACCOUNTANT", "ADMIN"]);
   if (error) return error;
 
   const { searchParams } = new URL(req.url);
-  const status = searchParams.get("status") ?? "";
+  const statusRaw = searchParams.get("status") ?? "";
+  const status = VALID_INVOICE_STATUSES.has(statusRaw) ? statusRaw : "";
 
   const invoices = await prisma.invoice.findMany({
     where: status ? { status: status as never } : {},
@@ -24,6 +32,7 @@ export async function GET(req: Request) {
       term: { select: { name: true } },
     },
     orderBy: [{ status: "asc" }, { student: { fullName: "asc" } }],
+    take: 1000,
   });
 
   const workbook = new ExcelJS.Workbook();

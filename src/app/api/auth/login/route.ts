@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { loginSchema } from "@/lib/validation";
 import {
+  DUMMY_PASSWORD_HASH,
   SESSION_COOKIE_NAME,
+  checkRateLimit,
+  clearRateLimit,
+  getClientIp,
+  getSessionCookieOptions,
+  recordFailedAttempt,
   signSessionToken,
   verifyPassword,
 } from "@/lib/auth";
@@ -10,6 +16,20 @@ import { AppRole, ROLE_HOME } from "@/lib/role-routes";
 
 export async function POST(req: Request) {
   try {
+    const ip = getClientIp(req);
+    const ipLimit = checkRateLimit(`login:ip:${ip}`, 20, 15 * 60 * 1000);
+    if (!ipLimit.allowed) {
+      return NextResponse.json(
+        {
+          error: `Too many login attempts. Please try again in ${ipLimit.retryAfterSeconds} seconds.`,
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": String(ipLimit.retryAfterSeconds) },
+        }
+      );
+    }
+
     const body = await req.json();
     const parsed = loginSchema.safeParse(body);
     if (!parsed.success) {
@@ -21,6 +41,20 @@ export async function POST(req: Request) {
 
     const { identifier, password } = parsed.data;
     const normalized = identifier.toLowerCase();
+    const userBucketKey = `login:user:${ip}:${normalized}`;
+
+    const userLimit = checkRateLimit(userBucketKey, 5, 15 * 60 * 1000);
+    if (!userLimit.allowed) {
+      return NextResponse.json(
+        {
+          error: `Too many failed attempts for this account. Try again in ${userLimit.retryAfterSeconds} seconds.`,
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": String(userLimit.retryAfterSeconds) },
+        }
+      );
+    }
 
     const user = await prisma.user.findFirst({
       where: {
@@ -28,7 +62,15 @@ export async function POST(req: Request) {
       },
     });
 
-    if (!user) {
+    // Always run bcrypt comparison even when user is missing to prevent timing enumeration
+    const valid = await verifyPassword(
+      password,
+      user ? user.passwordHash : DUMMY_PASSWORD_HASH
+    );
+
+    if (!user || !valid) {
+      recordFailedAttempt(`login:ip:${ip}`, 20, 15 * 60 * 1000);
+      recordFailedAttempt(userBucketKey, 5, 15 * 60 * 1000);
       return NextResponse.json(
         { error: "Invalid username/email or password" },
         { status: 401 }
@@ -42,17 +84,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const valid = await verifyPassword(password, user.passwordHash);
-    if (!valid) {
-      return NextResponse.json(
-        { error: "Invalid username/email or password" },
-        { status: 401 }
-      );
-    }
+    clearRateLimit(userBucketKey);
 
+    const loginAt = new Date();
     await prisma.user.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      data: { lastLoginAt: loginAt },
     });
 
     const role = user.role as AppRole;
@@ -61,6 +98,8 @@ export async function POST(req: Request) {
       username: user.username,
       fullName: user.fullName,
       role,
+      mustChangePassword: user.mustChangePassword,
+      sessionStartedAt: loginAt.getTime(),
     });
 
     const res = NextResponse.json({
@@ -74,13 +113,7 @@ export async function POST(req: Request) {
       redirectTo: user.mustChangePassword ? "/change-password" : ROLE_HOME[role],
     });
 
-    res.cookies.set(SESSION_COOKIE_NAME, token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 12,
-    });
+    res.cookies.set(SESSION_COOKIE_NAME, token, getSessionCookieOptions());
 
     return res;
   } catch (err) {

@@ -171,6 +171,19 @@ function pushdownCacheKey(model: ModelName, pushdown?: PushdownFilter): string {
   return `${model}:${pushdown.field}:${pushdown.op}:${JSON.stringify(pushdown.value)}`;
 }
 
+function hydrateRecordDefaults(model: ModelName, doc: DbRecord): DbRecord {
+  const defaults = MODEL_DEFS[model].defaults;
+  if (!defaults) return doc;
+  let next: DbRecord | null = null;
+  for (const [k, v] of Object.entries(defaults)) {
+    if (doc[k] === undefined) {
+      if (!next) next = { ...doc };
+      next[k] = cloneValue(v);
+    }
+  }
+  return next ?? doc;
+}
+
 async function fetchModelDocs(
   model: ModelName,
   session: QuerySession,
@@ -195,14 +208,16 @@ async function fetchModelDocs(
         ? allBase.filter((rec) => matchesPushdown(rec, pushdown))
         : allBase;
     } else {
-      baseDocs = await queryFirestoreCollection(col, pushdown);
+      const fetched = await queryFirestoreCollection(col, pushdown);
+      baseDocs = fetched.map((d) => hydrateRecordDefaults(model, d));
       session.tx.baseCollectionCache.set(txKey, baseDocs);
       for (const doc of baseDocs) {
         session.tx.baseIdCache.set(`${model}:${doc.id}`, doc);
       }
     }
   } else {
-    baseDocs = await queryFirestoreCollection(col, pushdown);
+    const fetched = await queryFirestoreCollection(col, pushdown);
+    baseDocs = fetched.map((d) => hydrateRecordDefaults(model, d));
   }
 
   const docs = applyTxOverlay(model, baseDocs, session.tx, pushdown);
@@ -245,7 +260,8 @@ async function fetchDocById(
   if (session.tx && session.tx.baseIdCache.has(txIdKey)) {
     doc = session.tx.baseIdCache.get(txIdKey) ?? null;
   } else {
-    doc = await getFirestoreDocById(MODEL_DEFS[model].collection, id);
+    const rawDoc = await getFirestoreDocById(MODEL_DEFS[model].collection, id);
+    doc = rawDoc ? hydrateRecordDefaults(model, rawDoc) : null;
     if (session.tx) {
       session.tx.baseIdCache.set(txIdKey, doc);
     }
@@ -1764,6 +1780,25 @@ function buildModelDelegate(model: ModelName, boundTx?: TxOverlay) {
   };
 }
 
+const globalForTxLock = globalThis as unknown as {
+  __firestoreTxQueue?: Promise<unknown>;
+};
+
+async function withTransactionLock<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = globalForTxLock.__firestoreTxQueue ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  globalForTxLock.__firestoreTxQueue = prev.then(() => current, () => current);
+  await prev.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
 function buildClient(boundTx?: TxOverlay) {
   const client: Record<string, unknown> = {};
   for (const model of ALL_MODELS) {
@@ -1773,24 +1808,26 @@ function buildClient(boundTx?: TxOverlay) {
   client.$transaction = async <T>(
     arg: ((tx: unknown) => Promise<T>) | Promise<unknown>[]
   ): Promise<T | unknown[]> => {
-    const tx = createTxOverlay();
-    if (typeof arg === "function") {
-      const txClient = buildClient(tx);
-      const res = await arg(txClient);
-      await tx.commit();
-      return res;
-    }
-
-    const results: unknown[] = [];
-    for (const op of arg) {
-      if (isLazyQuery(op)) {
-        results.push(await op[RUN_WITH_TX](tx));
-      } else {
-        results.push(await op);
+    return withTransactionLock(async () => {
+      const tx = createTxOverlay();
+      if (typeof arg === "function") {
+        const txClient = buildClient(tx);
+        const res = await arg(txClient);
+        await tx.commit();
+        return res;
       }
-    }
-    await tx.commit();
-    return results;
+
+      const results: unknown[] = [];
+      for (const op of arg) {
+        if (isLazyQuery(op)) {
+          results.push(await op[RUN_WITH_TX](tx));
+        } else {
+          results.push(await op);
+        }
+      }
+      await tx.commit();
+      return results;
+    });
   };
 
   client.$connect = async () => {};

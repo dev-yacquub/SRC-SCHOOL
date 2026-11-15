@@ -52,8 +52,8 @@ export default async function TeacherStudentAcademicProfilePage({
     });
     const assigned = teacher
       ? await prisma.classSubject.findFirst({
-          where: { teacherId: teacher.id, classId: student.classId },
-        })
+        where: { teacherId: teacher.id, classId: student.classId },
+      })
       : null;
 
     if (!assigned) {
@@ -138,7 +138,7 @@ export default async function TeacherStudentAcademicProfilePage({
         <StatCard
           label="Attendance Rate"
           value={attSummary.total > 0 ? `${attSummary.ratePercent}%` : "N/A"}
-          hint={`${attSummary.present} Present · ${attSummary.late} Late · ${attSummary.absent} Absent`}
+          hint={`${attSummary.present} Present · ${attSummary.absent} Absent`}
           tone={attSummary.ratePercent >= 80 || attSummary.total === 0 ? "emerald" : "rose"}
         />
         <StatCard
@@ -235,13 +235,13 @@ export default async function TeacherStudentAcademicProfilePage({
                   key={a.id}
                   className="flex items-center justify-between py-2 text-sm"
                 >
-                  <div>
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs text-slate-700">{a.date}</span>
-                    {a.note && (
-                      <span className="ml-2 text-xs text-slate-500">({a.note})</span>
-                    )}
+                    <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                      {a.shift === "SHIFT_B" ? "Shift B" : "Shift A"}
+                    </span>
                   </div>
-                  <StatusBadge value={a.status} />
+                  <StatusBadge value={a.status === "ABSENT" ? "ABSENT" : "PRESENT"} />
                 </div>
               ))}
             </div>
