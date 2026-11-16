@@ -301,6 +301,57 @@ describe("Sequence codes, timetable conflicts, and attendance", () => {
     expect(formatHeroAttendanceDate("2026-11-15")).toBe("SUNDAY, NOVEMBER 15");
     expect(formatHeroAttendanceDate("2026-02-31")).toBe("2026-02-31");
   });
+
+  it("computes previous ISO date and summarizes students missing yesterday", async () => {
+    const { getPreviousIsoDate, summarizeYesterdayMissingStudents } = await import(
+      "@/lib/domain"
+    );
+
+    expect(getPreviousIsoDate("2026-11-16")).toBe("2026-11-15");
+    expect(getPreviousIsoDate("2026-03-01")).toBe("2026-02-28");
+    expect(getPreviousIsoDate("2024-03-01")).toBe("2024-02-29");
+    expect(getPreviousIsoDate("2026-01-01")).toBe("2025-12-31");
+    expect(getPreviousIsoDate("invalid")).toBe("invalid");
+
+    const students = [
+      { id: "s1", admissionNo: "ADM-2026-0001", fullName: "Aamiin Cabdi" },
+      { id: "s2", admissionNo: "ADM-2026-0002", fullName: "Axmed Maxamed" },
+      { id: "s3", admissionNo: "ADM-2026-0003", fullName: "Hodan Cali" },
+    ];
+
+    expect(summarizeYesterdayMissingStudents(students, [])).toEqual({
+      recorded: false,
+      recordedShifts: { SHIFT_A: false, SHIFT_B: false },
+      missingStudents: [],
+    });
+
+    const summary = summarizeYesterdayMissingStudents(students, [
+      { studentId: "s1", shift: "SHIFT_A", status: "PRESENT" },
+      { studentId: "s2", shift: "SHIFT_A", status: "ABSENT" },
+      { studentId: "s2", shift: "SHIFT_B", status: "ABSENT" },
+      { studentId: "s3", shift: "SHIFT_A", status: "PRESENT" },
+      { studentId: "s3", shift: "SHIFT_B", status: "ABSENT" },
+    ]);
+
+    expect(summary).toEqual({
+      recorded: true,
+      recordedShifts: { SHIFT_A: true, SHIFT_B: true },
+      missingStudents: [
+        {
+          id: "s2",
+          admissionNo: "ADM-2026-0002",
+          fullName: "Axmed Maxamed",
+          absentShifts: ["SHIFT_A", "SHIFT_B"],
+        },
+        {
+          id: "s3",
+          admissionNo: "ADM-2026-0003",
+          fullName: "Hodan Cali",
+          absentShifts: ["SHIFT_B"],
+        },
+      ],
+    });
+  });
 });
 
 describe("selective fee structure invoicing and payment allocation helpers", () => {

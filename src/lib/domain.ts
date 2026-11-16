@@ -509,6 +509,103 @@ export function getClassBadgeCode(name: string): string {
 }
 
 /**
+ * Computes the previous calendar date in YYYY-MM-DD format without UTC timezone drift.
+ */
+export function getPreviousIsoDate(isoDate: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate.trim());
+  if (!match) return isoDate;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  if (
+    dt.getUTCFullYear() !== year ||
+    dt.getUTCMonth() !== month - 1 ||
+    dt.getUTCDate() !== day
+  ) {
+    return isoDate;
+  }
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(dt.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export type MissingYesterdayStudent = {
+  id: string;
+  admissionNo: string;
+  fullName: string;
+  gender?: string;
+  absentShifts: ("SHIFT_A" | "SHIFT_B")[];
+};
+
+/**
+ * Summarizes which students in a class were marked ABSENT on the previous day across shifts.
+ */
+export function summarizeYesterdayMissingStudents(
+  students: {
+    id: string;
+    admissionNo: string;
+    fullName: string;
+    gender?: string;
+  }[],
+  records: {
+    studentId: string;
+    shift?: string | null;
+    status: "PRESENT" | "ABSENT" | string;
+  }[]
+): {
+  recorded: boolean;
+  recordedShifts: {
+    SHIFT_A: boolean;
+    SHIFT_B: boolean;
+  };
+  missingStudents: MissingYesterdayStudent[];
+} {
+  const recordedShifts = {
+    SHIFT_A: records.some((r) => (r.shift ?? "SHIFT_A") === "SHIFT_A"),
+    SHIFT_B: records.some((r) => r.shift === "SHIFT_B"),
+  };
+  const recorded = recordedShifts.SHIFT_A || recordedShifts.SHIFT_B;
+
+  const absentShiftsByStudent = new Map<string, Set<"SHIFT_A" | "SHIFT_B">>();
+  for (const r of records) {
+    if (r.status !== "ABSENT") continue;
+    const sh: "SHIFT_A" | "SHIFT_B" =
+      r.shift === "SHIFT_B" ? "SHIFT_B" : "SHIFT_A";
+    let set = absentShiftsByStudent.get(r.studentId);
+    if (!set) {
+      set = new Set();
+      absentShiftsByStudent.set(r.studentId, set);
+    }
+    set.add(sh);
+  }
+
+  const missingStudents: MissingYesterdayStudent[] = [];
+  for (const s of students) {
+    const set = absentShiftsByStudent.get(s.id);
+    if (!set || set.size === 0) continue;
+    const absentShifts: ("SHIFT_A" | "SHIFT_B")[] = [];
+    if (set.has("SHIFT_A")) absentShifts.push("SHIFT_A");
+    if (set.has("SHIFT_B")) absentShifts.push("SHIFT_B");
+    missingStudents.push({
+      id: s.id,
+      admissionNo: s.admissionNo,
+      fullName: s.fullName,
+      ...(s.gender !== undefined ? { gender: s.gender } : {}),
+      absentShifts,
+    });
+  }
+
+  return {
+    recorded,
+    recordedShifts,
+    missingStudents,
+  };
+}
+
+/**
  * Formats an ISO calendar date string (YYYY-MM-DD) into an uppercase hero banner label without UTC timezone drift.
  */
 export function formatHeroAttendanceDate(isoDate: string): string {

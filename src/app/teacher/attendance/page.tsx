@@ -5,6 +5,8 @@ import {
   formatHeroAttendanceDate,
   formatShiftLabel,
   getClassBadgeCode,
+  getPreviousIsoDate,
+  MissingYesterdayStudent,
   summarizeAttendance,
 } from "@/lib/domain";
 import { Card, PageHeader } from "@/components/ui";
@@ -20,7 +22,9 @@ import {
   Printer,
   Search,
   Trash2,
+  UserX,
   Users,
+  X,
 } from "lucide-react";
 
 type AttendanceStatus = "PRESENT" | "ABSENT";
@@ -105,6 +109,18 @@ export default function TeacherAttendancePage() {
   const [alreadyRecorded, setAlreadyRecorded] = useState(false);
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
+  const [yesterday, setYesterday] = useState<{
+    date: string;
+    recorded: boolean;
+    recordedShifts: { SHIFT_A: boolean; SHIFT_B: boolean };
+    missingStudents: MissingYesterdayStudent[];
+  }>(() => ({
+    date: getPreviousIsoDate(new Date().toISOString().slice(0, 10)),
+    recorded: false,
+    recordedShifts: { SHIFT_A: false, SHIFT_B: false },
+    missingStudents: [],
+  }));
+  const [showYesterdayMissing, setShowYesterdayMissing] = useState(false);
 
   // Monthly state
   const [monthLabel, setMonthLabel] = useState("");
@@ -147,6 +163,25 @@ export default function TeacherAttendancePage() {
       setRecordedShifts(
         data.recordedShifts ?? { SHIFT_A: false, SHIFT_B: false }
       );
+      if (data.yesterday) {
+        setYesterday({
+          date:
+            data.yesterday.date ?? getPreviousIsoDate(data.date ?? targetDate),
+          recorded: Boolean(data.yesterday.recorded),
+          recordedShifts: data.yesterday.recordedShifts ?? {
+            SHIFT_A: false,
+            SHIFT_B: false,
+          },
+          missingStudents: data.yesterday.missingStudents ?? [],
+        });
+      } else {
+        setYesterday({
+          date: getPreviousIsoDate(data.date ?? targetDate),
+          recorded: false,
+          recordedShifts: { SHIFT_A: false, SHIFT_B: false },
+          missingStudents: [],
+        });
+      }
       if (data.overview) {
         setOverview(data.overview);
       }
@@ -761,14 +796,20 @@ export default function TeacherAttendancePage() {
                         ABSENT
                       </div>
                     </div>
-                    <div className="rounded-2xl border border-white/12 bg-white/10 px-2 py-2.5 text-center backdrop-blur-xs">
-                      <div className="text-xl font-bold text-white tabular-nums">
-                        {dailySummary.ratePercent}%
+                    <button
+                      type="button"
+                      onClick={() => setShowYesterdayMissing(true)}
+                      className="group flex flex-col items-center justify-center rounded-2xl border border-amber-300/35 bg-amber-400/15 px-2 py-2 text-center backdrop-blur-xs transition hover:bg-amber-400/25 active:scale-[0.98]"
+                      title="Show students who were missing yesterday in this class"
+                    >
+                      <div className="inline-flex items-center justify-center gap-0.5 text-xl font-bold text-white tabular-nums">
+                        <span>{yesterday.missingStudents.length}</span>
+                        <ChevronRight className="h-4 w-4 text-amber-200 transition-transform group-hover:translate-x-0.5" />
                       </div>
-                      <div className="text-[10px] font-semibold tracking-wider text-indigo-200 uppercase">
-                        RATE
+                      <div className="text-[9px] font-semibold tracking-wider text-amber-200 uppercase leading-tight">
+                        MISSING YESTERDAY
                       </div>
-                    </div>
+                    </button>
                   </div>
                 </div>
 
@@ -1053,14 +1094,23 @@ export default function TeacherAttendancePage() {
                   {dailySummary.absent}
                 </p>
               </div>
-              <div>
-                <p className="text-[11px] font-medium text-indigo-600 uppercase">
-                  Attendance Rate
-                </p>
-                <p className="text-base font-bold text-indigo-700 tabular-nums sm:text-lg">
-                  {dailySummary.ratePercent}%
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowYesterdayMissing(true)}
+                className="group flex flex-col items-start justify-center rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-1.5 text-left transition hover:border-amber-300 hover:bg-amber-100/70"
+                title="Show students who were missing yesterday in this class"
+              >
+                <span className="text-[11px] font-semibold text-amber-700 uppercase">
+                  Missing Yesterday
+                </span>
+                <span className="mt-0.5 inline-flex items-center gap-1.5 text-base font-bold text-amber-900 tabular-nums sm:text-lg">
+                  <span>{yesterday.missingStudents.length}</span>
+                  <span className="text-xs font-medium text-amber-700">
+                    {yesterday.missingStudents.length === 1 ? "student" : "students"} · View
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-amber-600 transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </button>
             </div>
           )}
 
@@ -1143,6 +1193,146 @@ export default function TeacherAttendancePage() {
               </div>
           )}
           </Card>
+
+          {showYesterdayMissing && (
+            <div
+              className="no-print fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-2xs"
+              onClick={() => setShowYesterdayMissing(false)}
+            >
+              <div
+                className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-5 py-4">
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-amber-700 uppercase">
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      <span>{formatHeroAttendanceDate(yesterday.date)}</span>
+                      <span className="text-slate-400">({yesterday.date})</span>
+                    </div>
+                    <h2 className="mt-0.5 text-lg font-bold text-slate-900">
+                      Missing Yesterday — {selectedClassName}
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowYesterdayMissing(false)}
+                    className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-200/70 hover:text-slate-600"
+                    aria-label="Close modal"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="p-5">
+                  {!yesterday.recorded ? (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center">
+                      <UserX className="mx-auto h-8 w-8 text-slate-400" />
+                      <p className="mt-2 text-sm font-semibold text-slate-800">
+                        No attendance recorded yesterday
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Attendance was not recorded for {selectedClassName} on{" "}
+                        {yesterday.date}.
+                      </p>
+                    </div>
+                  ) : yesterday.missingStudents.length === 0 ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-6 text-center">
+                      <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600" />
+                      <p className="mt-2 text-sm font-semibold text-emerald-900">
+                        No students were missing yesterday
+                      </p>
+                      <p className="mt-1 text-xs text-emerald-700">
+                        All recorded students in {selectedClassName} were present on{" "}
+                        {yesterday.date}.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
+                          <UserX className="h-3.5 w-3.5" />
+                          {yesterday.missingStudents.length}{" "}
+                          {yesterday.missingStudents.length === 1
+                            ? "student was absent"
+                            : "students were absent"}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          Recorded:{" "}
+                          {[
+                            yesterday.recordedShifts.SHIFT_A ? "Shift A" : null,
+                            yesterday.recordedShifts.SHIFT_B ? "Shift B" : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" & ")}
+                        </span>
+                      </div>
+
+                      <div className="max-h-[55vh] divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
+                        {yesterday.missingStudents.map((stu, idx) => {
+                          const todayStatus =
+                            records[stu.id]?.status ?? "PRESENT";
+                          return (
+                            <div
+                              key={stu.id}
+                              className="flex items-center justify-between gap-3 px-3.5 py-3 hover:bg-slate-50/80"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-slate-900">
+                                  <span className="mr-1.5 text-xs font-normal text-slate-400 tabular-nums">
+                                    #{idx + 1}
+                                  </span>
+                                  {stu.fullName}
+                                </p>
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                  <span className="font-mono text-[11px] text-slate-500">
+                                    {stu.admissionNo}
+                                  </span>
+                                  {stu.absentShifts.map((sh) => (
+                                    <span
+                                      key={sh}
+                                      className="rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700"
+                                    >
+                                      Absent {formatShiftLabel(sh)}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className="shrink-0 text-right">
+                                <div className="text-[10px] font-medium text-slate-400 uppercase">
+                                  Today
+                                </div>
+                                <span
+                                  className={`mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                    todayStatus === "PRESENT"
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "bg-rose-100 text-rose-700"
+                                  }`}
+                                >
+                                  {todayStatus}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex justify-end border-t border-slate-100 bg-slate-50/60 px-5 py-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowYesterdayMissing(false)}
+                    className="min-h-[38px] rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       ) : tab === "monthly" ? (
         <Card>

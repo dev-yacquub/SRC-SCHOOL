@@ -3,6 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { requireApiRole } from "@/lib/auth";
 import { attendanceBatchSchema } from "@/lib/validation";
 import { logAudit } from "@/lib/audit";
+import {
+  getPreviousIsoDate,
+  summarizeYesterdayMissingStudents,
+} from "@/lib/domain";
 
 export async function GET(req: Request) {
   const { user, error } = await requireApiRole(["TEACHER", "ADMIN"]);
@@ -46,6 +50,8 @@ export async function GET(req: Request) {
     ? classId
     : allowedClassIds[0] ?? "";
 
+  const yesterdayDate = getPreviousIsoDate(date);
+
   if (!selectedClassId) {
     return NextResponse.json({
       classes: [],
@@ -56,6 +62,12 @@ export async function GET(req: Request) {
       selectedClassId: "",
       date,
       shift,
+      yesterday: {
+        date: yesterdayDate,
+        recorded: false,
+        recordedShifts: { SHIFT_A: false, SHIFT_B: false },
+        missingStudents: [],
+      },
       overview: {
         totalClasses: 0,
         totalStudents: 0,
@@ -65,7 +77,12 @@ export async function GET(req: Request) {
     });
   }
 
-  const [students, studentCounts, allClassesDateAttendance] = await Promise.all([
+  const [
+    students,
+    studentCounts,
+    allClassesDateAttendance,
+    yesterdayClassAttendance,
+  ] = await Promise.all([
     prisma.student.findMany({
       where: { classId: selectedClassId, status: "ACTIVE" },
       orderBy: { fullName: "asc" },
@@ -83,6 +100,14 @@ export async function GET(req: Request) {
         studentId: true,
         classId: true,
         date: true,
+        shift: true,
+        status: true,
+      },
+    }),
+    prisma.attendance.findMany({
+      where: { classId: selectedClassId, date: yesterdayDate },
+      select: {
+        studentId: true,
         shift: true,
         status: true,
       },
@@ -148,6 +173,11 @@ export async function GET(req: Request) {
       status: a.status === "ABSENT" ? ("ABSENT" as const) : ("PRESENT" as const),
     }));
 
+  const yesterdaySummary = summarizeYesterdayMissingStudents(
+    students,
+    yesterdayClassAttendance
+  );
+
   return NextResponse.json({
     classes: uniqueClasses,
     selectedClassId,
@@ -157,6 +187,12 @@ export async function GET(req: Request) {
     attendance,
     alreadyRecorded: attendance.length > 0,
     recordedShifts,
+    yesterday: {
+      date: yesterdayDate,
+      recorded: yesterdaySummary.recorded,
+      recordedShifts: yesterdaySummary.recordedShifts,
+      missingStudents: yesterdaySummary.missingStudents,
+    },
     overview: {
       totalClasses: uniqueClasses.length,
       totalStudents: classSummaries.reduce((sum, c) => sum + c.studentCount, 0),
