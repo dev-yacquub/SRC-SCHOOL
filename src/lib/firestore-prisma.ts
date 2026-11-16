@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import {
   commitFirestoreBatch,
+  countFirestoreCollection,
   generateId,
   getFirestoreDocById,
   queryFirestoreCollection,
@@ -187,9 +188,15 @@ function hydrateRecordDefaults(model: ModelName, doc: DbRecord): DbRecord {
 async function fetchModelDocs(
   model: ModelName,
   session: QuerySession,
-  pushdown?: PushdownFilter
+  pushdown?: PushdownFilter,
+  options?: { limit?: number }
 ): Promise<DbRecord[]> {
-  if (!pushdown) {
+  const maxDocs =
+    !session.tx && options?.limit && options.limit > 0
+      ? Math.trunc(options.limit)
+      : undefined;
+
+  if (!pushdown && !maxDocs) {
     const cachedAll = session.allCache.get(model);
     if (cachedAll) return cachedAll;
   }
@@ -216,7 +223,9 @@ async function fetchModelDocs(
       }
     }
   } else {
-    const fetched = await queryFirestoreCollection(col, pushdown);
+    const fetched = await queryFirestoreCollection(col, pushdown, {
+      limit: maxDocs,
+    });
     baseDocs = fetched.map((d) => hydrateRecordDefaults(model, d));
   }
 
@@ -231,7 +240,7 @@ async function fetchModelDocs(
     idMap.set(doc.id, doc);
   }
 
-  if (!pushdown) {
+  if (!pushdown && !maxDocs) {
     session.allCache.set(model, docs);
   }
   return docs;
@@ -449,6 +458,36 @@ function selectPushdownFilter(
   if (candidates.length === 0) return undefined;
   candidates.sort((a, b) => a.priority - b.priority);
   return candidates[0].filter;
+}
+
+/**
+ * Returns true when the Prisma `where` filter is completely satisfied by the
+ * single Firestore pushdown equality filter (requiring no in-memory filtering).
+ */
+function canFullyPushdownWhere(
+  model: ModelName,
+  where: WhereObj | undefined,
+  pushdown: PushdownFilter | undefined
+): boolean {
+  if (!where) return true;
+  const activeEntries = Object.entries(where).filter(([, v]) => v !== undefined);
+  if (activeEntries.length === 0) return true;
+  if (!pushdown || pushdown.op !== "==" || activeEntries.length !== 1) {
+    return false;
+  }
+  const [key, val] = activeEntries[0];
+  if (key !== pushdown.field || MODEL_DEFS[model].relations[key]) {
+    return false;
+  }
+  if (val === null || !isPlainObject(val) || val instanceof Date) {
+    return valuesEqual(val, pushdown.value);
+  }
+  const activeOps = Object.entries(val).filter(([, v]) => v !== undefined);
+  return (
+    activeOps.length === 1 &&
+    activeOps[0][0] === "equals" &&
+    valuesEqual(activeOps[0][1], pushdown.value)
+  );
 }
 
 function matchesScalarFilter(fieldVal: unknown, filter: unknown): boolean {
@@ -1060,7 +1099,9 @@ async function resolveUniqueWhere(
   }
 
   const pushdown = selectPushdownFilter(model, where);
-  const candidates = await fetchModelDocs(model, session, pushdown);
+  const limit =
+    !session.tx && canFullyPushdownWhere(model, where, pushdown) ? 1 : undefined;
+  const candidates = await fetchModelDocs(model, session, pushdown, { limit });
   for (const doc of candidates) {
     if (await matchesWhere(model, doc, where, session)) {
       return doc;
@@ -1336,8 +1377,25 @@ function buildModelDelegate(model: ModelName, boundTx?: TxOverlay) {
   ): Promise<Record<string, unknown>[]> => {
     const session = createSession(tx);
     const where = isPlainObject(args?.where) ? args.where : undefined;
+    const skip = typeof args?.skip === "number" ? args.skip : 0;
+    const take = typeof args?.take === "number" ? args.take : undefined;
+    if (take === 0) return [];
+
     const pushdown = selectPushdownFilter(model, where);
-    const rawDocs = await fetchModelDocs(model, session, pushdown);
+    const hasOrderBy = parseOrderBy(args?.orderBy as OrderByInput | undefined).length > 0;
+    const pushdownLimit =
+      !session.tx &&
+      take !== undefined &&
+      take > 0 &&
+      !hasOrderBy &&
+      canFullyPushdownWhere(model, where, pushdown) &&
+      (!pushdown || pushdown.op === "==")
+        ? skip + take
+        : undefined;
+
+    const rawDocs = await fetchModelDocs(model, session, pushdown, {
+      limit: pushdownLimit,
+    });
     await prefetchWhereRelations(model, rawDocs, where, session);
 
     const matched: DbRecord[] = [];
@@ -1354,8 +1412,6 @@ function buildModelDelegate(model: ModelName, boundTx?: TxOverlay) {
       session
     );
 
-    const skip = typeof args?.skip === "number" ? args.skip : 0;
-    const take = typeof args?.take === "number" ? args.take : undefined;
     const paged =
       skip > 0 || take !== undefined
         ? sorted.slice(skip, take !== undefined ? skip + take : undefined)
@@ -1458,9 +1514,18 @@ function buildModelDelegate(model: ModelName, boundTx?: TxOverlay) {
 
     count: (args?: Record<string, unknown>) =>
       createQuery(async (tx) => {
-        const session = createSession(tx ?? boundTx);
+        const effectiveTx = tx ?? boundTx;
         const where = isPlainObject(args?.where) ? args.where : undefined;
         const pushdown = selectPushdownFilter(model, where);
+        if (
+          !effectiveTx &&
+          canFullyPushdownWhere(model, where, pushdown) &&
+          (!pushdown || pushdown.op === "==")
+        ) {
+          return countFirestoreCollection(MODEL_DEFS[model].collection, pushdown);
+        }
+
+        const session = createSession(effectiveTx);
         const rawDocs = await fetchModelDocs(model, session, pushdown);
         await prefetchWhereRelations(model, rawDocs, where, session);
         let count = 0;

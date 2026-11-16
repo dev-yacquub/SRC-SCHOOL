@@ -4,8 +4,10 @@ import {
   deleteDoc,
   doc,
   documentId,
+  getCountFromServer,
   getDoc,
   getDocs,
+  limit as firestoreLimit,
   query,
   setDoc,
   where,
@@ -101,6 +103,21 @@ function mapDoc(id: string, raw: Record<string, unknown> | undefined): DbRecord 
   return { ...converted, id };
 }
 
+export function isFirestoreQuotaError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  const code =
+    typeof err === "object" && err !== null && "code" in err
+      ? String((err as { code?: unknown }).code)
+      : "";
+  const lower = message.toLowerCase();
+  return (
+    code.toLowerCase().includes("resource-exhausted") ||
+    message.includes("RESOURCE_EXHAUSTED") ||
+    lower.includes("quota exceeded") ||
+    lower.includes("daily quota exceeded")
+  );
+}
+
 function wrapFirestoreError(err: unknown, context: string): Error {
   const message = err instanceof Error ? err.message : String(err);
   const code =
@@ -108,6 +125,12 @@ function wrapFirestoreError(err: unknown, context: string): Error {
       ? String((err as { code?: unknown }).code)
       : "";
 
+  if (isFirestoreQuotaError(err)) {
+    return new Error(
+      `Cloud Firestore daily quota exceeded (${context}) for project "${firebaseConfig.projectId}" (8 RESOURCE_EXHAUSTED). ` +
+        `Wait for the Spark free-tier daily quota reset (midnight Pacific Time) or upgrade the project to the Blaze plan in Firebase Console.`
+    );
+  }
   if (
     code.includes("permission-denied") ||
     message.includes("PERMISSION_DENIED") ||
@@ -165,9 +188,12 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 
 async function fetchAllFromAdmin(
   adminDb: AdminFirestore,
-  colName: string
+  colName: string,
+  maxDocs?: number
 ): Promise<DbRecord[]> {
-  const snap = await adminDb.collection(colName).get();
+  const base = adminDb.collection(colName);
+  const snap =
+    maxDocs && maxDocs > 0 ? await base.limit(maxDocs).get() : await base.get();
   return snap.docs
     .map((d) => mapDoc(d.id, d.data() as Record<string, unknown>))
     .filter((d): d is DbRecord => d !== null);
@@ -185,8 +211,15 @@ function assertSafeClientFallback() {
   return getClientFirestore();
 }
 
-async function fetchAllFromClient(colName: string): Promise<DbRecord[]> {
-  const snap = await getDocs(collection(assertSafeClientFallback(), colName));
+async function fetchAllFromClient(
+  colName: string,
+  maxDocs?: number
+): Promise<DbRecord[]> {
+  const colRef = collection(assertSafeClientFallback(), colName);
+  const snap =
+    maxDocs && maxDocs > 0
+      ? await getDocs(query(colRef, firestoreLimit(maxDocs)))
+      : await getDocs(colRef);
   return snap.docs
     .map((d) => mapDoc(d.id, d.data() as Record<string, unknown>))
     .filter((d): d is DbRecord => d !== null);
@@ -213,20 +246,58 @@ export async function getFirestoreDocById(
 }
 
 /**
+ * Counts documents in a collection using Firestore server-side aggregation so
+ * count queries only consume 1 read per 1,000 matched index entries.
+ */
+export async function countFirestoreCollection(
+  colName: string,
+  pushdown?: Extract<PushdownFilter, { op: "==" }>
+): Promise<number> {
+  try {
+    if (pushdown?.field === "id") {
+      if (typeof pushdown.value !== "string" || !pushdown.value) return 0;
+      const single = await getFirestoreDocById(colName, pushdown.value);
+      return single ? 1 : 0;
+    }
+
+    const adminDb = getAdminFirestore();
+    if (adminDb) {
+      const q = pushdown
+        ? adminDb.collection(colName).where(pushdown.field, "==", pushdown.value)
+        : adminDb.collection(colName);
+      const agg = await q.count().get();
+      return agg.data().count;
+    }
+
+    const colRef = collection(assertSafeClientFallback(), colName);
+    const q = pushdown
+      ? query(colRef, where(pushdown.field, "==", pushdown.value))
+      : colRef;
+    const agg = await getCountFromServer(q);
+    return agg.data().count;
+  } catch (err) {
+    throw wrapFirestoreError(err, `count ${colName}`);
+  }
+}
+
+/**
  * Queries a collection using at most one selective equality/IN pushdown filter
  * so fresh Firestore databases work reliably via single-field auto-indexes.
  */
 export async function queryFirestoreCollection(
   colName: string,
-  pushdown?: PushdownFilter
+  pushdown?: PushdownFilter,
+  options?: { limit?: number }
 ): Promise<DbRecord[]> {
+  const maxDocs =
+    options?.limit && options.limit > 0 ? Math.trunc(options.limit) : undefined;
   try {
     const adminDb = getAdminFirestore();
 
     if (!pushdown) {
       return adminDb
-        ? await fetchAllFromAdmin(adminDb, colName)
-        : await fetchAllFromClient(colName);
+        ? await fetchAllFromAdmin(adminDb, colName, maxDocs)
+        : await fetchAllFromClient(colName, maxDocs);
     }
 
     if (pushdown.field === "id") {
@@ -309,16 +380,23 @@ export async function queryFirestoreCollection(
 
     try {
       if (adminDb) {
-        const snap = await adminDb
+        const base = adminDb
           .collection(colName)
-          .where(pushdown.field, "==", pushdown.value)
-          .get();
+          .where(pushdown.field, "==", pushdown.value);
+        const snap = maxDocs ? await base.limit(maxDocs).get() : await base.get();
         return snap.docs
           .map((d) => mapDoc(d.id, d.data() as Record<string, unknown>))
           .filter((d): d is DbRecord => d !== null);
       }
-      const constraint: QueryConstraint = where(pushdown.field, "==", pushdown.value);
-      const snap = await getDocs(query(collection(assertSafeClientFallback(), colName), constraint));
+      const constraints: QueryConstraint[] = [
+        where(pushdown.field, "==", pushdown.value),
+      ];
+      if (maxDocs) {
+        constraints.push(firestoreLimit(maxDocs));
+      }
+      const snap = await getDocs(
+        query(collection(assertSafeClientFallback(), colName), ...constraints)
+      );
       return snap.docs
         .map((d) => mapDoc(d.id, d.data() as Record<string, unknown>))
         .filter((d): d is DbRecord => d !== null);

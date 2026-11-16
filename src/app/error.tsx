@@ -9,26 +9,63 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const isQuotaError =
+    error.message.includes("RESOURCE_EXHAUSTED") ||
+    error.message.toLowerCase().includes("quota exceeded");
+
   const isFirebaseSetupError =
-    error.message.includes("Firestore") ||
-    error.message.includes("src-tech-school") ||
-    error.message.includes("client is offline") ||
-    error.message.includes("PERMISSION_DENIED");
+    !isQuotaError &&
+    (error.message.includes("Firestore") ||
+      error.message.includes("src-tech-school") ||
+      error.message.includes("client is offline") ||
+      error.message.includes("PERMISSION_DENIED"));
+
+  const isMaskedServerError =
+    !isQuotaError &&
+    !isFirebaseSetupError &&
+    (error.message.includes("Minified React error #441") ||
+      error.message.includes("Server Components render"));
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-lg rounded-2xl border border-rose-200 bg-white p-6 shadow-sm">
         <p className="text-xs font-semibold tracking-wider text-rose-600 uppercase">
-          {isFirebaseSetupError ? "Firebase Connection Required" : "Application Error"}
+          {isQuotaError
+            ? "Firebase Quota Reached"
+            : isFirebaseSetupError
+              ? "Firebase Connection Required"
+              : "Application Error"}
         </p>
         <h1 className="mt-1 text-xl font-bold text-slate-900">
-          {isFirebaseSetupError
-            ? "Could not connect to Cloud Firestore"
-            : "Something went wrong"}
+          {isQuotaError
+            ? "Cloud Firestore daily quota exceeded"
+            : isFirebaseSetupError
+              ? "Could not connect to Cloud Firestore"
+              : isMaskedServerError
+                ? "Server could not load page data"
+                : "Something went wrong"}
         </h1>
         <p className="mt-3 rounded-lg bg-slate-100 p-3 text-xs break-words text-slate-700">
-          {error.message}
+          {isMaskedServerError
+            ? `A server-side database or rendering error occurred${
+                error.digest ? ` (Digest: ${error.digest})` : ""
+              }. Check /api/health or Vercel server logs to see the exact cause (for example, Cloud Firestore daily quota exceeded).`
+            : error.message}
         </p>
+
+        {isQuotaError && (
+          <ol className="mt-4 list-decimal space-y-1.5 pl-5 text-xs text-slate-600">
+            <li>
+              Your Firebase Spark free-tier daily Firestore quota (50,000 reads/day) has
+              been exhausted for project{" "}
+              <code className="font-mono font-semibold">src-tech-school</code>.
+            </li>
+            <li>
+              Wait for the automatic daily reset at midnight Pacific Time, or upgrade the
+              project to the Blaze pay-as-you-go plan in Firebase Console.
+            </li>
+          </ol>
+        )}
 
         {isFirebaseSetupError && (
           <ol className="mt-4 list-decimal space-y-1.5 pl-5 text-xs text-slate-600">

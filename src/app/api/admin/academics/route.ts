@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireApiRole } from "@/lib/auth";
+import { invalidateSchoolContextCache } from "@/lib/shell-context";
 import {
   academicYearSchema,
   classSchema,
@@ -59,6 +60,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const action = body?.action as string | undefined;
+    invalidateSchoolContextCache();
 
     if (action === "createYear") {
       const id = body?.id ? String(body.id) : undefined;
@@ -306,6 +308,7 @@ export async function DELETE(req: Request) {
       await prisma.feeStructure.deleteMany({ where: { termId: id } });
       await prisma.exam.deleteMany({ where: { termId: id } });
       await prisma.term.delete({ where: { id } });
+      invalidateSchoolContextCache();
       return NextResponse.json({ ok: true });
     }
     if (kind === "year") {
@@ -320,6 +323,7 @@ export async function DELETE(req: Request) {
       }
       await prisma.term.deleteMany({ where: { academicYearId: id } });
       await prisma.academicYear.delete({ where: { id } });
+      invalidateSchoolContextCache();
       return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ error: "Unsupported kind" }, { status: 400 });

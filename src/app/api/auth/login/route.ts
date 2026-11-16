@@ -13,6 +13,7 @@ import {
   verifyPassword,
 } from "@/lib/auth";
 import { AppRole, ROLE_HOME } from "@/lib/role-routes";
+import { isFirestoreQuotaError } from "@/lib/firestore-backend";
 
 export async function POST(req: Request) {
   try {
@@ -56,11 +57,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        OR: [{ username: normalized }, { email: normalized }],
-      },
-    });
+    const user = normalized.includes("@")
+      ? (await prisma.user.findUnique({ where: { email: normalized } })) ??
+        (await prisma.user.findUnique({ where: { username: normalized } }))
+      : (await prisma.user.findUnique({ where: { username: normalized } })) ??
+        (await prisma.user.findUnique({ where: { email: normalized } }));
 
     // Always run bcrypt comparison even when user is missing to prevent timing enumeration
     const valid = await verifyPassword(
@@ -118,6 +119,15 @@ export async function POST(req: Request) {
     return res;
   } catch (err) {
     console.error("Login error:", err);
+    if (isFirestoreQuotaError(err)) {
+      return NextResponse.json(
+        {
+          error:
+            "Cloud Firestore daily quota exceeded (8 RESOURCE_EXHAUSTED). Please wait for the daily Spark quota reset or upgrade Firebase to the Blaze plan.",
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       { error: "Failed to authenticate" },
       { status: 500 }

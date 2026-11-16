@@ -10,6 +10,7 @@ import {
   photoSchema,
   updateInvoiceSchema,
 } from "../src/lib/validation";
+import { isFirestoreQuotaError } from "../src/lib/firestore-backend";
 
 describe("Edge session JWT", () => {
   it("signs and verifies a valid session token", async () => {
@@ -136,6 +137,19 @@ describe("Role-based route access matrix", () => {
     expect(canAccessPath("ADMISSION", "/accountant/payments")).toBe(false);
     expect(canAccessPath("ADMISSION", "/admission/register")).toBe(true);
     expect(canAccessPath("ADMIN", "/admission/students")).toBe(true);
+  });
+});
+
+describe("Firestore error helpers", () => {
+  it("detects RESOURCE_EXHAUSTED quota errors across code and message shapes", () => {
+    expect(
+      isFirestoreQuotaError(new Error("8 RESOURCE_EXHAUSTED: Quota exceeded."))
+    ).toBe(true);
+    expect(isFirestoreQuotaError({ code: "resource-exhausted", message: "" })).toBe(
+      true
+    );
+    expect(isFirestoreQuotaError(new Error("Daily quota exceeded"))).toBe(true);
+    expect(isFirestoreQuotaError(new Error("PERMISSION_DENIED"))).toBe(false);
   });
 });
 

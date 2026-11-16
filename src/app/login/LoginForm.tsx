@@ -8,9 +8,11 @@ import SrcLogo from "@/components/SrcLogo";
 export function LoginForm({
   needsSetup,
   initialSchoolName,
+  initialError = null,
 }: {
   needsSetup: boolean;
   initialSchoolName: string;
+  initialError?: string | null;
 }) {
   const router = useRouter();
   const [identifier, setIdentifier] = useState("");
@@ -28,7 +30,7 @@ export function LoginForm({
   const [setupPassword, setSetupPassword] = useState("");
   const [includeDefaultGradeScale, setIncludeDefaultGradeScale] = useState(true);
 
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   const [loading, setLoading] = useState(false);
 
   async function handleLogin(e: React.FormEvent) {

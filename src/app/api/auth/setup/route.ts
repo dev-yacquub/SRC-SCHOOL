@@ -10,6 +10,7 @@ import {
   signSessionToken,
 } from "@/lib/auth";
 import { initialSetupSchema } from "@/lib/validation";
+import { invalidateSchoolContextCache } from "@/lib/shell-context";
 
 const STANDARD_GRADE_SCALE = [
   { minScore: 90, maxScore: 100, grade: "A", remark: "Excellent" },
@@ -21,13 +22,13 @@ const STANDARD_GRADE_SCALE = [
 ];
 
 export async function GET() {
-  const [userCount, settings] = await Promise.all([
-    prisma.user.count(),
+  const [firstUser, settings] = await Promise.all([
+    prisma.user.findFirst({ select: { id: true } }),
     prisma.schoolSettings.findUnique({ where: { id: "default" } }),
   ]);
 
   return NextResponse.json({
-    needsSetup: userCount === 0,
+    needsSetup: !firstUser,
     requiresSetupToken: Boolean(process.env.SETUP_TOKEN?.trim()),
     schoolName: settings?.schoolName ?? "",
   });
@@ -149,6 +150,8 @@ export async function POST(req: Request) {
 
       return createdAdmin;
     });
+
+    invalidateSchoolContextCache();
 
     const token = await signSessionToken({
       userId: admin.id,

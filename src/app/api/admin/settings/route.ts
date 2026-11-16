@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireApiRole } from "@/lib/auth";
 import { settingsSchema } from "@/lib/validation";
 import { logAudit } from "@/lib/audit";
+import { invalidateSchoolContextCache } from "@/lib/shell-context";
 
 export async function GET() {
   const { error } = await requireApiRole(["ADMIN"]);
@@ -33,6 +34,7 @@ export async function PUT(req: Request) {
       update: parsed.data,
       create: { id: "default", ...parsed.data },
     });
+    invalidateSchoolContextCache();
 
     await logAudit({
       userId: user.userId,
