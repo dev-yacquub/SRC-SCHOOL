@@ -53,6 +53,12 @@ export default async function AdmissionDashboard() {
               Student Directory
             </Link>
             <Link
+              href="/admission/late"
+              className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Late Students
+            </Link>
+            <Link
               href="/admission/import"
               className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >

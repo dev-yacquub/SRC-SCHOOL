@@ -366,6 +366,70 @@ export function summarizeAttendance(
   return { total, present, absent, ratePercent };
 }
 
+export const MONTHLY_ABSENCE_HIGHLIGHT_THRESHOLD = 3;
+
+export function getMonthlyAbsenceStats(
+  records: { date: string; status: string }[]
+): {
+  absentDays: number;
+  absentShifts: number;
+  meetsAbsenceThreshold: boolean;
+} {
+  let absentShifts = 0;
+  const absentDates = new Set<string>();
+  for (const r of records) {
+    if (r.status === "ABSENT") {
+      absentShifts++;
+      if (r.date) {
+        absentDates.add(r.date);
+      }
+    }
+  }
+  const absentDays = absentDates.size;
+  const meetsAbsenceThreshold =
+    absentDays >= MONTHLY_ABSENCE_HIGHLIGHT_THRESHOLD ||
+    absentShifts >= MONTHLY_ABSENCE_HIGHLIGHT_THRESHOLD;
+  return {
+    absentDays,
+    absentShifts,
+    meetsAbsenceThreshold,
+  };
+}
+
+export const LATE_DAYS_HIGHLIGHT_THRESHOLD = 3;
+
+export function getLateArrivalStats(
+  records: { date: string; punishedAt?: Date | string | null }[]
+): {
+  totalLateDays: number;
+  totalLateShifts: number;
+  unpunishedLateDays: number;
+  unpunishedLateShifts: number;
+  needsPunishmentHighlight: boolean;
+} {
+  const allDates = new Set<string>();
+  const unpunishedDates = new Set<string>();
+  let unpunishedLateShifts = 0;
+
+  for (const r of records) {
+    if (r.date) allDates.add(r.date);
+    if (!r.punishedAt) {
+      unpunishedLateShifts++;
+      if (r.date) unpunishedDates.add(r.date);
+    }
+  }
+
+  const unpunishedLateDays = unpunishedDates.size;
+  return {
+    totalLateDays: allDates.size,
+    totalLateShifts: records.length,
+    unpunishedLateDays,
+    unpunishedLateShifts,
+    needsPunishmentHighlight:
+      unpunishedLateDays >= LATE_DAYS_HIGHLIGHT_THRESHOLD,
+  };
+}
+
 export const DAYS_OF_WEEK: { value: number; label: string; short: string }[] = [
   { value: 6, label: "Saturday", short: "Sat" },
   { value: 0, label: "Sunday", short: "Sun" },

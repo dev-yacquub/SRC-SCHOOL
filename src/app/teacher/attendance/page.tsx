@@ -78,6 +78,11 @@ type MonthlyRow = {
     absent: number;
     ratePercent: number;
   };
+  absentDays: number;
+  absentShifts: number;
+  meetsAbsenceThreshold: boolean;
+  isPunished: boolean;
+  needsPunishmentHighlight: boolean;
 };
 
 export default function TeacherAttendancePage() {
@@ -126,6 +131,7 @@ export default function TeacherAttendancePage() {
   const [monthLabel, setMonthLabel] = useState("");
   const [daysInMonth, setDaysInMonth] = useState(30);
   const [monthlyRows, setMonthlyRows] = useState<MonthlyRow[]>([]);
+  const [punishingStudentId, setPunishingStudentId] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{
@@ -315,6 +321,41 @@ export default function TeacherAttendancePage() {
   function handleMonthlyShiftChange(nextShift: "ALL" | "SHIFT_A" | "SHIFT_B") {
     setMonthlyShift(nextShift);
     void loadMonthly(classId, month, nextShift);
+  }
+
+  async function markStudentPunished(studentId: string) {
+    if (!classId || !month) return;
+    setPunishingStudentId(studentId);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/teacher/attendance/monthly", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId, classId, month }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage({
+          type: "err",
+          text: data.error ?? "Failed to mark student as punished",
+        });
+        setPunishingStudentId(null);
+        return;
+      }
+      setMonthlyRows((prev) =>
+        prev.map((row) =>
+          row.studentId === studentId
+            ? { ...row, isPunished: true, needsPunishmentHighlight: false }
+            : row
+        )
+      );
+    } catch {
+      setMessage({
+        type: "err",
+        text: "Network error while updating punishment status",
+      });
+    }
+    setPunishingStudentId(null);
   }
 
   function setStatus(studentId: string, status: AttendanceStatus) {
@@ -1428,7 +1469,7 @@ export default function TeacherAttendancePage() {
                 {monthlyShift === "ALL"
                   ? " · Cells show Shift A / Shift B · "
                   : " · "}
-                Students below 80% attendance rate are highlighted.
+                Students absent 3+ days or 3+ shifts are highlighted until marked Punished.
               </p>
               <p className="no-print mt-1 text-[11px] font-medium text-indigo-600 md:hidden">
                 ← Swipe sideways on the register below to see all days →
@@ -1466,12 +1507,54 @@ export default function TeacherAttendancePage() {
                   {monthlyRows.map((row) => {
                     const lowAttendance =
                       row.summary.total > 0 && row.summary.ratePercent < 80;
+                    const isHighlighted = row.needsPunishmentHighlight;
                     return (
-                      <tr key={row.studentId} className="hover:bg-slate-50/80">
-                        <td className="sticky left-0 z-10 bg-white px-2.5 py-2 whitespace-nowrap">
-                          <div className="font-medium text-slate-900">{row.fullName}</div>
-                          <div className="font-mono text-[10px] text-slate-400">
-                            {row.admissionNo}
+                      <tr
+                        key={row.studentId}
+                        className={
+                          isHighlighted
+                            ? "bg-rose-50/90 hover:bg-rose-100/70"
+                            : "hover:bg-slate-50/80"
+                        }
+                      >
+                        <td
+                          className={`sticky left-0 z-10 px-2.5 py-2 whitespace-nowrap ${
+                            isHighlighted
+                              ? "border-l-4 border-l-rose-500 bg-rose-50"
+                              : "bg-white"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2.5">
+                            <div>
+                              <div
+                                className={`font-medium ${
+                                  isHighlighted ? "text-rose-950" : "text-slate-900"
+                                }`}
+                              >
+                                {row.fullName}
+                              </div>
+                              <div className="flex items-center gap-1.5 font-mono text-[10px] text-slate-400">
+                                <span>{row.admissionNo}</span>
+                                {isHighlighted && (
+                                  <span className="rounded bg-rose-100 px-1 py-0.5 font-sans text-[10px] font-semibold text-rose-700">
+                                    {row.absentDays}d / {row.absentShifts}s absent
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {isHighlighted && (
+                              <button
+                                type="button"
+                                onClick={() => markStudentPunished(row.studentId)}
+                                disabled={punishingStudentId === row.studentId}
+                                className="no-print shrink-0 rounded-md bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white shadow-2xs transition hover:bg-rose-700 disabled:opacity-50"
+                                title="Mark student as punished and remove highlight"
+                              >
+                                {punishingStudentId === row.studentId
+                                  ? "Saving..."
+                                  : "Punished"}
+                              </button>
+                            )}
                           </div>
                         </td>
                         {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((d) => {

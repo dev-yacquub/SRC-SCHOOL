@@ -11,6 +11,8 @@ export type ModelName =
   | "classSubject"
   | "timetableSlot"
   | "attendance"
+  | "attendancePunishment"
+  | "lateArrival"
   | "examAttendance"
   | "exam"
   | "mark"
@@ -217,6 +219,18 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
         fk: "classId",
         cascadeDelete: true,
       },
+      attendancePunishments: {
+        kind: "hasMany",
+        targetModel: "attendancePunishment",
+        fk: "classId",
+        cascadeDelete: true,
+      },
+      lateArrivals: {
+        kind: "hasMany",
+        targetModel: "lateArrival",
+        fk: "classId",
+        cascadeDelete: true,
+      },
     },
   },
   subject: {
@@ -332,6 +346,18 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
         fk: "studentId",
         cascadeDelete: true,
       },
+      attendancePunishments: {
+        kind: "hasMany",
+        targetModel: "attendancePunishment",
+        fk: "studentId",
+        cascadeDelete: true,
+      },
+      lateArrivals: {
+        kind: "hasMany",
+        targetModel: "lateArrival",
+        fk: "studentId",
+        cascadeDelete: true,
+      },
     },
   },
   enrollment: {
@@ -410,6 +436,51 @@ export const MODEL_DEFS: Record<ModelName, ModelDef> = {
     defaults: {
       shift: "SHIFT_A",
       note: null,
+    },
+    hasCreatedAt: true,
+    hasUpdatedAt: true,
+    relations: {
+      student: {
+        kind: "belongsTo",
+        targetModel: "student",
+        fk: "studentId",
+      },
+      class: {
+        kind: "belongsTo",
+        targetModel: "schoolClass",
+        fk: "classId",
+      },
+    },
+  },
+  attendancePunishment: {
+    collection: "attendance_punishments",
+    compoundUniques: {
+      studentId_month: ["studentId", "month"],
+    },
+    nowDefaults: ["punishedAt"],
+    relations: {
+      student: {
+        kind: "belongsTo",
+        targetModel: "student",
+        fk: "studentId",
+      },
+      class: {
+        kind: "belongsTo",
+        targetModel: "schoolClass",
+        fk: "classId",
+      },
+    },
+  },
+  lateArrival: {
+    collection: "late_arrivals",
+    compoundUniques: {
+      studentId_date_shift: ["studentId", "date", "shift"],
+    },
+    defaults: {
+      shift: "SHIFT_A",
+      note: null,
+      punishedAt: null,
+      punishedById: null,
     },
     hasCreatedAt: true,
     hasUpdatedAt: true,

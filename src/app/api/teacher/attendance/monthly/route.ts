@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireApiRole } from "@/lib/auth";
-import { parseYearMonth, summarizeAttendance } from "@/lib/domain";
+import {
+  getMonthlyAbsenceStats,
+  parseYearMonth,
+  summarizeAttendance,
+} from "@/lib/domain";
 
 export async function GET(req: Request) {
   const { user, error } = await requireApiRole(["TEACHER", "ADMIN"]);
@@ -56,7 +61,7 @@ export async function GET(req: Request) {
     });
   }
 
-  const [students, allRecords] = await Promise.all([
+  const [students, allRecords, punishments] = await Promise.all([
     prisma.student.findMany({
       where: { classId: selectedClassId, status: "ACTIVE" },
       orderBy: { fullName: "asc" },
@@ -69,7 +74,16 @@ export async function GET(req: Request) {
       },
       orderBy: [{ date: "asc" }, { shift: "asc" }],
     }),
+    prisma.attendancePunishment.findMany({
+      where: {
+        classId: selectedClassId,
+        month: monthInfo.ym,
+      },
+      select: { studentId: true },
+    }),
   ]);
+
+  const punishedStudentIds = new Set(punishments.map((p) => p.studentId));
 
   const records =
     shiftFilter === "ALL"
@@ -120,12 +134,21 @@ export async function GET(req: Request) {
       }
     }
     const summary = summarizeAttendance(studentRecs);
+    const absenceStats = getMonthlyAbsenceStats(studentRecs);
+    const isPunished = punishedStudentIds.has(s.id);
+    const needsPunishmentHighlight =
+      absenceStats.meetsAbsenceThreshold && !isPunished;
     return {
       studentId: s.id,
       admissionNo: s.admissionNo,
       fullName: s.fullName,
       days,
       summary,
+      absentDays: absenceStats.absentDays,
+      absentShifts: absenceStats.absentShifts,
+      meetsAbsenceThreshold: absenceStats.meetsAbsenceThreshold,
+      isPunished,
+      needsPunishmentHighlight,
     };
   });
 
@@ -210,6 +233,91 @@ export async function GET(req: Request) {
     daysInMonth: monthInfo.daysInMonth,
     shift: shiftFilter,
     rows,
+  });
+}
+
+const punishSchema = z.object({
+  studentId: z.string().min(1),
+  classId: z.string().min(1),
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+});
+
+export async function POST(req: Request) {
+  const { user, error } = await requireApiRole(["TEACHER", "ADMIN"]);
+  if (error || !user) return error;
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const parsed = punishSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "studentId, classId, and month (YYYY-MM) are required" },
+      { status: 400 }
+    );
+  }
+
+  const { studentId, classId, month } = parsed.data;
+  const monthInfo = parseYearMonth(month);
+
+  if (user.role === "TEACHER") {
+    const teacher = await prisma.teacher.findUnique({
+      where: { userId: user.userId },
+      select: { id: true },
+    });
+    if (!teacher) {
+      return NextResponse.json({ error: "Teacher profile missing" }, { status: 404 });
+    }
+    const assignment = await prisma.classSubject.findFirst({
+      where: { teacherId: teacher.id, classId },
+      select: { id: true },
+    });
+    if (!assignment) {
+      return NextResponse.json(
+        { error: "You are not assigned to this class" },
+        { status: 403 }
+      );
+    }
+  }
+
+  const student = await prisma.student.findFirst({
+    where: { id: studentId, classId, status: "ACTIVE" },
+    select: { id: true },
+  });
+  if (!student) {
+    return NextResponse.json({ error: "Student not found in this class" }, { status: 404 });
+  }
+
+  await prisma.attendancePunishment.upsert({
+    where: {
+      studentId_month: {
+        studentId,
+        month: monthInfo.ym,
+      },
+    },
+    update: {
+      classId,
+      punishedById: user.userId,
+      punishedAt: new Date(),
+    },
+    create: {
+      studentId,
+      classId,
+      month: monthInfo.ym,
+      punishedById: user.userId,
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    studentId,
+    classId,
+    month: monthInfo.ym,
+    isPunished: true,
   });
 }
 

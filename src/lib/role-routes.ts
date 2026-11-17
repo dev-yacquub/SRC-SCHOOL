@@ -36,6 +36,7 @@ export const ROLE_NAV: Record<AppRole, NavItem[]> = {
     { label: "Admission Overview", href: "/admission", icon: "LayoutDashboard", section: "Admissions" },
     { label: "Register Student", href: "/admission/register", icon: "UserPlus", section: "Admissions" },
     { label: "Students", href: "/admission/students", icon: "GraduationCap", section: "Admissions" },
+    { label: "Late Students", href: "/admission/late", icon: "Clock", section: "Admissions" },
     { label: "Promote Students", href: "/admission/promote", icon: "ArrowUpCircle", section: "Admissions" },
     { label: "Import Excel", href: "/admission/import", icon: "FileSpreadsheet", section: "Admissions" },
 
@@ -58,6 +59,7 @@ export const ROLE_NAV: Record<AppRole, NavItem[]> = {
     { label: "Dashboard", href: "/admission", icon: "LayoutDashboard" },
     { label: "Register Student", href: "/admission/register", icon: "UserPlus" },
     { label: "Students", href: "/admission/students", icon: "GraduationCap" },
+    { label: "Late Students", href: "/admission/late", icon: "Clock" },
     { label: "Promote Students", href: "/admission/promote", icon: "ArrowUpCircle" },
     { label: "Import Excel", href: "/admission/import", icon: "FileSpreadsheet" },
   ],

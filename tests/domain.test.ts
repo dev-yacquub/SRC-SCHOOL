@@ -13,6 +13,8 @@ import {
   formatCurrency,
   formatPaymentAllocationsSummary,
   generateSequenceCode,
+  getLateArrivalStats,
+  getMonthlyAbsenceStats,
   isBusFeeItem,
   normalizeFeeItemName,
   resolveStudentInvoiceItems,
@@ -652,6 +654,97 @@ describe("Exam attendance helpers and validation", () => {
         records: [{ studentId: "s1", status: "PRESENT" }],
       }).success
     ).toBe(false);
+  });
+});
+
+describe("Monthly absence threshold for punishment highlight", () => {
+  it("flags students absent for 3 or more shifts even across fewer than 3 days", () => {
+    const stats = getMonthlyAbsenceStats([
+      { date: "2026-11-01", status: "ABSENT" },
+      { date: "2026-11-01", status: "ABSENT" },
+      { date: "2026-11-02", status: "ABSENT" },
+      { date: "2026-11-02", status: "PRESENT" },
+    ]);
+    expect(stats).toEqual({
+      absentDays: 2,
+      absentShifts: 3,
+      meetsAbsenceThreshold: true,
+    });
+  });
+
+  it("flags students absent across 3 distinct days", () => {
+    const stats = getMonthlyAbsenceStats([
+      { date: "2026-11-01", status: "ABSENT" },
+      { date: "2026-11-03", status: "ABSENT" },
+      { date: "2026-11-05", status: "ABSENT" },
+    ]);
+    expect(stats).toEqual({
+      absentDays: 3,
+      absentShifts: 3,
+      meetsAbsenceThreshold: true,
+    });
+  });
+
+  it("does not flag students with fewer than 3 absent days and shifts", () => {
+    const stats = getMonthlyAbsenceStats([
+      { date: "2026-11-01", status: "ABSENT" },
+      { date: "2026-11-01", status: "ABSENT" },
+      { date: "2026-11-02", status: "PRESENT" },
+    ]);
+    expect(stats).toEqual({
+      absentDays: 1,
+      absentShifts: 2,
+      meetsAbsenceThreshold: false,
+    });
+  });
+});
+
+describe("Late arrival threshold for red highlight", () => {
+  it("highlights red when student has 3 or more unpunished late days", () => {
+    const stats = getLateArrivalStats([
+      { date: "2026-11-10", punishedAt: null },
+      { date: "2026-11-11", punishedAt: null },
+      { date: "2026-11-12", punishedAt: null },
+    ]);
+    expect(stats).toEqual({
+      totalLateDays: 3,
+      totalLateShifts: 3,
+      unpunishedLateDays: 3,
+      unpunishedLateShifts: 3,
+      needsPunishmentHighlight: true,
+    });
+  });
+
+  it("counts multiple shifts on the same day as 1 late day", () => {
+    const stats = getLateArrivalStats([
+      { date: "2026-11-10", punishedAt: null },
+      { date: "2026-11-10", punishedAt: null },
+      { date: "2026-11-11", punishedAt: null },
+    ]);
+    expect(stats).toEqual({
+      totalLateDays: 2,
+      totalLateShifts: 3,
+      unpunishedLateDays: 2,
+      unpunishedLateShifts: 3,
+      needsPunishmentHighlight: false,
+    });
+  });
+
+  it("clears highlight once late records are marked punished", () => {
+    const now = new Date().toISOString();
+    const stats = getLateArrivalStats([
+      { date: "2026-11-10", punishedAt: now },
+      { date: "2026-11-11", punishedAt: now },
+      { date: "2026-11-12", punishedAt: now },
+      { date: "2026-11-15", punishedAt: null },
+    ]);
+    expect(stats).toEqual({
+      totalLateDays: 4,
+      totalLateShifts: 4,
+      unpunishedLateDays: 1,
+      unpunishedLateShifts: 1,
+      needsPunishmentHighlight: false,
+    });
   });
 });
 

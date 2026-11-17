@@ -133,6 +133,8 @@ model SchoolClass {
   examAttendance ExamAttendance[]
   marks          Mark[]
   feeStructures  FeeStructure[]
+  attendancePunishments AttendancePunishment[]
+  lateArrivals   LateArrival[]
 
   @@unique([academicYearId, name])
   @@map("classes")
@@ -197,6 +199,8 @@ model Student {
   marks          Mark[]
   reportRemarks  ReportRemark[]
   invoices       Invoice[]
+  attendancePunishments AttendancePunishment[]
+  lateArrivals   LateArrival[]
 
   @@index([classId])
   @@index([status])
@@ -270,6 +274,44 @@ model Attendance {
   @@unique([studentId, date, shift])
   @@index([classId, date, shift])
   @@map("attendance")
+}
+
+model AttendancePunishment {
+  id           String   @id @default(cuid())
+  studentId    String
+  classId      String
+  month        String // YYYY-MM
+  punishedById String
+  punishedAt   DateTime @default(now())
+
+  student Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class   SchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, month])
+  @@index([classId, month])
+  @@map("attendance_punishments")
+}
+
+model LateArrival {
+  id           String    @id @default(cuid())
+  studentId    String
+  classId      String
+  date         String // YYYY-MM-DD
+  shift        String    @default("SHIFT_A") // SHIFT_A | SHIFT_B
+  note         String?
+  markedById   String
+  punishedAt   DateTime?
+  punishedById String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  student Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class   SchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, date, shift])
+  @@index([classId, date, shift])
+  @@index([studentId, date])
+  @@map("late_arrivals")
 }
 
 model ExamAttendance {
