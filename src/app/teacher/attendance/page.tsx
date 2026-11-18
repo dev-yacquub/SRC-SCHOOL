@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   formatHeroAttendanceDate,
   formatShiftLabel,
@@ -630,6 +630,14 @@ export default function TeacherAttendancePage() {
     )
     : monthlyRows;
 
+  const yesterdayAbsentByStudent = useMemo(
+    () =>
+      new Map<string, AttendanceShift[]>(
+        yesterday.missingStudents.map((stu) => [stu.id, stu.absentShifts])
+      ),
+    [yesterday.missingStudents]
+  );
+
   const selectedClassName =
     classes.find((c) => c.id === classId)?.name ?? "Selected Class";
 
@@ -1187,22 +1195,64 @@ export default function TeacherAttendancePage() {
                             studentId: s.id,
                             status: "ABSENT" as AttendanceStatus,
                           };
+                          const yesterdayAbsentShifts =
+                            yesterdayAbsentByStudent.get(s.id) ?? [];
+                          const isAbsentYesterday =
+                            yesterdayAbsentShifts.length > 0;
                           return (
                             <div
                               key={s.id}
-                              className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs"
+                              className={`rounded-2xl border p-3.5 shadow-xs ${
+                                isAbsentYesterday
+                                  ? "border-rose-300 border-l-4 border-l-rose-500 bg-rose-50/85"
+                                  : "border-slate-200 bg-white"
+                              }`}
                             >
-                              <div className="mb-2.5 flex items-baseline justify-between gap-2">
-                                <p className="font-semibold text-slate-900">
-                                  <span className="mr-1.5 text-xs font-normal text-slate-400 tabular-nums">
+                              <div
+                                className={`flex items-baseline justify-between gap-2 ${
+                                  isAbsentYesterday ? "mb-1.5" : "mb-2.5"
+                                }`}
+                              >
+                                <p
+                                  className={`font-semibold ${
+                                    isAbsentYesterday
+                                      ? "text-rose-950"
+                                      : "text-slate-900"
+                                  }`}
+                                >
+                                  <span
+                                    className={`mr-1.5 text-xs font-normal tabular-nums ${
+                                      isAbsentYesterday
+                                        ? "text-rose-500"
+                                        : "text-slate-400"
+                                    }`}
+                                  >
                                     #{idx + 1}
                                   </span>
                                   {s.fullName}
                                 </p>
-                                <span className="shrink-0 font-mono text-[11px] text-slate-500">
+                                <span
+                                  className={`shrink-0 font-mono text-[11px] ${
+                                    isAbsentYesterday
+                                      ? "text-rose-700/80"
+                                      : "text-slate-500"
+                                  }`}
+                                >
                                   {s.admissionNo}
                                 </span>
                               </div>
+
+                              {isAbsentYesterday && (
+                                <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-800 ring-1 ring-rose-200">
+                                    <UserX className="h-3 w-3 shrink-0 text-rose-600" />
+                                    Absent yesterday:{" "}
+                                    {yesterdayAbsentShifts
+                                      .map((sh) => formatShiftLabel(sh))
+                                      .join(" & ")}
+                                  </span>
+                                </div>
+                              )}
 
                               <div className="grid grid-cols-2 gap-2">
                                 {(["PRESENT", "ABSENT"] as const).map((st) => {
@@ -1219,7 +1269,9 @@ export default function TeacherAttendancePage() {
                                       className={`min-h-[44px] rounded-xl border text-xs font-semibold transition ${
                                         active
                                           ? activeStyle
-                                          : "border-slate-200 bg-slate-50 text-slate-700 active:bg-slate-100"
+                                          : isAbsentYesterday
+                                            ? "border-rose-200 bg-white text-slate-700 active:bg-rose-50"
+                                            : "border-slate-200 bg-slate-50 text-slate-700 active:bg-slate-100"
                                       }`}
                                     >
                                       {st}
@@ -1482,16 +1534,58 @@ export default function TeacherAttendancePage() {
                         studentId: s.id,
                         status: "ABSENT" as AttendanceStatus,
                       };
+                      const yesterdayAbsentShifts =
+                        yesterdayAbsentByStudent.get(s.id) ?? [];
+                      const isAbsentYesterday =
+                        yesterdayAbsentShifts.length > 0;
                       return (
-                        <tr key={s.id} className="hover:bg-slate-50/70">
-                          <td className="py-3 pr-4 text-xs text-slate-400 tabular-nums">
+                        <tr
+                          key={s.id}
+                          className={
+                            isAbsentYesterday
+                              ? "bg-rose-50/90 hover:bg-rose-100/70"
+                              : "hover:bg-slate-50/70"
+                          }
+                        >
+                          <td
+                            className={`py-3 pr-4 text-xs tabular-nums ${
+                              isAbsentYesterday
+                                ? "border-l-4 border-l-rose-500 pl-2 font-semibold text-rose-600"
+                                : "text-slate-400"
+                            }`}
+                          >
                             {idx + 1}
                           </td>
-                          <td className="py-3 pr-4 font-mono text-xs text-slate-600">
+                          <td
+                            className={`py-3 pr-4 font-mono text-xs ${
+                              isAbsentYesterday
+                                ? "text-rose-700"
+                                : "text-slate-600"
+                            }`}
+                          >
                             {s.admissionNo}
                           </td>
-                          <td className="py-3 pr-4 font-medium text-slate-900">
-                            {s.fullName}
+                          <td className="py-3 pr-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`font-medium ${
+                                  isAbsentYesterday
+                                    ? "text-rose-950"
+                                    : "text-slate-900"
+                                }`}
+                              >
+                                {s.fullName}
+                              </span>
+                              {isAbsentYesterday && (
+                                <span className="inline-flex items-center gap-1 rounded-md bg-rose-100 px-1.5 py-0.5 text-[11px] font-semibold text-rose-800 ring-1 ring-rose-200">
+                                  <UserX className="h-3 w-3 shrink-0 text-rose-600" />
+                                  Absent yesterday:{" "}
+                                  {yesterdayAbsentShifts
+                                    .map((sh) => formatShiftLabel(sh))
+                                    .join(" & ")}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3">
                             <div className="inline-flex gap-1.5">
@@ -1508,7 +1602,9 @@ export default function TeacherAttendancePage() {
                                     onClick={() => setStatus(s.id, st)}
                                     className={`rounded-md border px-2.5 py-1 text-xs font-medium transition ${active
                                         ? activeStyle
-                                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                        : isAbsentYesterday
+                                          ? "border-rose-200 bg-white text-slate-600 hover:bg-rose-50"
+                                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                                       }`}
                                   >
                                     {st}

@@ -4,6 +4,7 @@ import { requireApiRole } from "@/lib/auth";
 import {
   filterAttendanceSearchStudents,
   getMonthlyAbsenceStats,
+  getPreviousIsoDate,
   getStudentClassJoinedTimestampMap,
   parseYearMonth,
   summarizeAttendance,
@@ -143,38 +144,51 @@ export async function GET(req: Request) {
     }
 
     const matchedIds = matches.map((m) => m.id);
+    const yesterdayDate = getPreviousIsoDate(date);
 
-    const [dailyRecords, monthlyRecords, punishments] = await Promise.all([
-      prisma.attendance.findMany({
-        where: {
-          studentId: { in: matchedIds },
-          date,
-        },
-        select: {
-          studentId: true,
-          shift: true,
-          status: true,
-        },
-      }),
-      prisma.attendance.findMany({
-        where: {
-          studentId: { in: matchedIds },
-          date: { startsWith: `${monthInfo.ym}-` },
-        },
-        select: {
-          studentId: true,
-          date: true,
-          status: true,
-        },
-      }),
-      prisma.attendancePunishment.findMany({
-        where: {
-          studentId: { in: matchedIds },
-          month: monthInfo.ym,
-        },
-        select: { studentId: true },
-      }),
-    ]);
+    const [dailyRecords, yesterdayAbsentRecords, monthlyRecords, punishments] =
+      await Promise.all([
+        prisma.attendance.findMany({
+          where: {
+            studentId: { in: matchedIds },
+            date,
+          },
+          select: {
+            studentId: true,
+            shift: true,
+            status: true,
+          },
+        }),
+        prisma.attendance.findMany({
+          where: {
+            studentId: { in: matchedIds },
+            date: yesterdayDate,
+            status: "ABSENT",
+          },
+          select: {
+            studentId: true,
+            shift: true,
+          },
+        }),
+        prisma.attendance.findMany({
+          where: {
+            studentId: { in: matchedIds },
+            date: { startsWith: `${monthInfo.ym}-` },
+          },
+          select: {
+            studentId: true,
+            date: true,
+            status: true,
+          },
+        }),
+        prisma.attendancePunishment.findMany({
+          where: {
+            studentId: { in: matchedIds },
+            month: monthInfo.ym,
+          },
+          select: { studentId: true },
+        }),
+      ]);
 
     const dailyMap = new Map<
       string,
@@ -188,6 +202,18 @@ export async function GET(req: Request) {
         cur.shiftA = normalizeStatus(r.status);
       }
       dailyMap.set(r.studentId, cur);
+    }
+
+    const yesterdayAbsentMap = new Map<string, Set<"SHIFT_A" | "SHIFT_B">>();
+    for (const r of yesterdayAbsentRecords) {
+      const sh: "SHIFT_A" | "SHIFT_B" =
+        r.shift === "SHIFT_B" ? "SHIFT_B" : "SHIFT_A";
+      let set = yesterdayAbsentMap.get(r.studentId);
+      if (!set) {
+        set = new Set();
+        yesterdayAbsentMap.set(r.studentId, set);
+      }
+      set.add(sh);
     }
 
     const monthlyByStudent = new Map<
@@ -204,6 +230,10 @@ export async function GET(req: Request) {
 
     const results = matches.map((s) => {
       const daily = dailyMap.get(s.id) ?? { shiftA: null, shiftB: null };
+      const ySet = yesterdayAbsentMap.get(s.id);
+      const yesterdayAbsentShifts: ("SHIFT_A" | "SHIFT_B")[] = [];
+      if (ySet?.has("SHIFT_A")) yesterdayAbsentShifts.push("SHIFT_A");
+      if (ySet?.has("SHIFT_B")) yesterdayAbsentShifts.push("SHIFT_B");
       const monthRecs = monthlyByStudent.get(s.id) ?? [];
       const summary = summarizeAttendance(monthRecs);
       const absenceStats = getMonthlyAbsenceStats(monthRecs);
@@ -220,6 +250,7 @@ export async function GET(req: Request) {
         className: s.className,
         classLevel: s.classLevel,
         daily,
+        yesterdayAbsentShifts,
         monthly: {
           ...summary,
           absentDays: absenceStats.absentDays,

@@ -12,6 +12,7 @@ import {
   GraduationCap,
   Loader2,
   Search,
+  UserX,
   X,
 } from "lucide-react";
 
@@ -31,6 +32,7 @@ export type UniversalAttendanceResult = {
     shiftA: AttendanceStatus | null;
     shiftB: AttendanceStatus | null;
   };
+  yesterdayAbsentShifts?: AttendanceShift[];
   monthly: {
     total: number;
     present: number;
@@ -388,14 +390,19 @@ export function UniversalAttendanceSearch({
                   const lowRate =
                     student.monthly.total > 0 &&
                     student.monthly.ratePercent < 80;
+                  const yesterdayAbsentShifts =
+                    student.yesterdayAbsentShifts ?? [];
+                  const isAbsentYesterday = yesterdayAbsentShifts.length > 0;
 
                   return (
                     <div
                       key={student.studentId}
-                      className={`flex flex-col gap-3 px-3.5 py-3 transition hover:bg-slate-50/80 lg:flex-row lg:items-center lg:justify-between ${
-                        student.monthly.needsPunishmentHighlight
-                          ? "bg-rose-50/40"
-                          : ""
+                      className={`flex flex-col gap-3 px-3.5 py-3 transition lg:flex-row lg:items-center lg:justify-between ${
+                        isAbsentYesterday
+                          ? "border-l-4 border-l-rose-500 bg-rose-50/85 hover:bg-rose-100/60"
+                          : student.monthly.needsPunishmentHighlight
+                            ? "bg-rose-50/40 hover:bg-slate-50/80"
+                            : "hover:bg-slate-50/80"
                       }`}
                     >
                       {/* Student identity + class badge */}
@@ -404,7 +411,11 @@ export function UniversalAttendanceSearch({
                           <button
                             type="button"
                             onClick={() => handleJump(student, activeTab)}
-                            className="truncate text-left text-sm font-semibold text-slate-900 hover:text-indigo-700 hover:underline"
+                            className={`truncate text-left text-sm font-semibold hover:text-indigo-700 hover:underline ${
+                              isAbsentYesterday
+                                ? "text-rose-950"
+                                : "text-slate-900"
+                            }`}
                           >
                             {student.fullName}
                           </button>
@@ -414,6 +425,15 @@ export function UniversalAttendanceSearch({
                           <span className="font-mono text-[11px] text-slate-500">
                             {student.admissionNo}
                           </span>
+                          {isAbsentYesterday && (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-rose-100 px-1.5 py-0.5 text-[11px] font-semibold text-rose-800 ring-1 ring-rose-200">
+                              <UserX className="h-3 w-3 shrink-0 text-rose-600" />
+                              Absent yesterday:{" "}
+                              {yesterdayAbsentShifts
+                                .map((sh) => formatShiftLabel(sh))
+                                .join(" & ")}
+                            </span>
+                          )}
                           <Link
                             href={`/teacher/students/${student.studentId}`}
                             className="inline-flex items-center gap-0.5 text-[11px] font-medium text-slate-400 hover:text-indigo-600"
