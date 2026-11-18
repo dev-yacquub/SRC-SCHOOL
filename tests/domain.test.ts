@@ -9,6 +9,7 @@ import {
   deriveExamRollCallStates,
   detectTimetableConflict,
   dollarsToCents,
+  filterAttendanceSearchStudents,
   filterUnbilledStudentFeeItems,
   formatCurrency,
   formatPaymentAllocationsSummary,
@@ -18,6 +19,7 @@ import {
   isBusFeeItem,
   normalizeFeeItemName,
   resolveStudentInvoiceItems,
+  sortStudentsForAttendance,
   summarizeAttendance,
 } from "../src/lib/domain";
 import {
@@ -747,4 +749,225 @@ describe("Late arrival threshold for red highlight", () => {
     });
   });
 });
+
+describe("universal attendance search filtering", () => {
+  const sampleStudents = [
+    {
+      id: "s1",
+      admissionNo: "ADM-2026-0001",
+      fullName: "Amina Hassan",
+      classId: "c1",
+      className: "Grade 5A",
+      classLevel: 5,
+      guardianPhone: "+252615111222",
+    },
+    {
+      id: "s2",
+      admissionNo: "ADM-2026-0002",
+      fullName: "Ahmed Mohamed",
+      classId: "c2",
+      className: "Grade 6B",
+      classLevel: 6,
+      guardianPhone: "+252615333444",
+    },
+    {
+      id: "s3",
+      admissionNo: "ADM-2026-0012",
+      fullName: "Mohamed Ahmed",
+      classId: "c1",
+      className: "Grade 5A",
+      classLevel: 5,
+      guardianPhone: "+252615999000",
+    },
+    {
+      id: "s4",
+      admissionNo: "ADM-2026-0020",
+      fullName: "Hodan Ali",
+      classId: "c3",
+      className: "Form 1A",
+      classLevel: 9,
+      guardianPhone: "+252615555666",
+    },
+  ];
+
+  it("returns empty results for blank queries", () => {
+    expect(filterAttendanceSearchStudents(sampleStudents, "   ")).toEqual({
+      totalMatches: 0,
+      matches: [],
+    });
+  });
+
+  it("matches students across multiple classes by name, admission no, class, and guardian phone", () => {
+    const byName = filterAttendanceSearchStudents(sampleStudents, "ahmed");
+    expect(byName.totalMatches).toBe(2);
+    // Name starting with query ranks ahead of substring match
+    expect(byName.matches.map((s) => s.id)).toEqual(["s2", "s3"]);
+
+    const byClass = filterAttendanceSearchStudents(sampleStudents, "grade 5a");
+    expect(byClass.matches.map((s) => s.id)).toEqual(["s1", "s3"]);
+
+    const byMultiToken = filterAttendanceSearchStudents(
+      sampleStudents,
+      "ahmed grade 5"
+    );
+    expect(byMultiToken.matches.map((s) => s.id)).toEqual(["s3"]);
+
+    const byPhone = filterAttendanceSearchStudents(sampleStudents, "555666");
+    expect(byPhone.matches.map((s) => s.id)).toEqual(["s4"]);
+  });
+
+  it("ranks exact admission number matches first and enforces result limit while preserving totalMatches", () => {
+    const exactAdm = filterAttendanceSearchStudents(
+      sampleStudents,
+      "adm-2026-0012"
+    );
+    expect(exactAdm.matches.map((s) => s.id)).toEqual(["s3"]);
+
+    const limited = filterAttendanceSearchStudents(sampleStudents, "ADM-2026", 2);
+    expect(limited.totalMatches).toBe(4);
+    expect(limited.matches).toHaveLength(2);
+  });
+
+  it("orders students in the same class by registration time (newest at bottom) instead of A-to-Z", () => {
+    const withNewStudent = [
+      {
+        id: "s-old-z",
+        admissionNo: "ADM-2026-0001",
+        fullName: "Zainab Omar",
+        classId: "c1",
+        className: "Grade 5A",
+        classLevel: 5,
+        createdAt: "2026-09-01T08:00:00.000Z",
+      },
+      {
+        id: "s-old-m",
+        admissionNo: "ADM-2026-0002",
+        fullName: "Mohamed Ali",
+        classId: "c1",
+        className: "Grade 5A",
+        classLevel: 5,
+        createdAt: "2026-09-02T08:00:00.000Z",
+      },
+      {
+        id: "s-new-a",
+        admissionNo: "ADM-2026-0050",
+        fullName: "Abdi Yusuf",
+        classId: "c1",
+        className: "Grade 5A",
+        classLevel: 5,
+        createdAt: "2026-11-18T06:00:00.000Z",
+      },
+    ];
+
+    const byClass = filterAttendanceSearchStudents(withNewStudent, "grade 5a");
+    expect(byClass.matches.map((s) => s.id)).toEqual([
+      "s-old-z",
+      "s-old-m",
+      "s-new-a",
+    ]);
+  });
+});
+
+describe("attendance roster ordering for new and transitioned students", () => {
+  it("places both newly registered students and students transitioned from another class at the bottom", () => {
+    const classId = "cls-6a";
+    const students = [
+      {
+        id: "s-transferred",
+        admissionNo: "ADM-2025-0001",
+        fullName: "Amina Original",
+        createdAt: "2025-09-01T08:00:00.000Z", // oldest in school, but moved to cls-6a last
+      },
+      {
+        id: "s-existing-1",
+        admissionNo: "ADM-2026-0010",
+        fullName: "Zainab Existing",
+        createdAt: "2026-09-01T08:00:00.000Z",
+      },
+      {
+        id: "s-existing-2",
+        admissionNo: "ADM-2026-0011",
+        fullName: "Bilal Existing",
+        createdAt: "2026-09-02T08:00:00.000Z",
+      },
+      {
+        id: "s-new-backdated",
+        admissionNo: "ADM-2026-0099",
+        fullName: "Abdi NewlyRegistered",
+        createdAt: "2026-11-18T06:00:00.000Z", // registered today, even if admissionDate was backdated
+      },
+    ];
+
+    const enrollments = [
+      {
+        studentId: "s-transferred",
+        classId: "cls-5a",
+        enrolledAt: "2025-09-01T08:00:00.000Z",
+      },
+      {
+        studentId: "s-transferred",
+        classId,
+        enrolledAt: "2026-11-18T06:20:00.000Z", // moved into cls-6a after s-new-backdated
+      },
+      {
+        studentId: "s-existing-1",
+        classId,
+        enrolledAt: "2026-09-01T08:00:00.000Z",
+      },
+      {
+        studentId: "s-existing-2",
+        classId,
+        enrolledAt: "2026-09-02T08:00:00.000Z",
+      },
+      {
+        studentId: "s-new-backdated",
+        classId,
+        enrolledAt: "2026-08-15T00:00:00.000Z", // backdated admissionDate shouldn't push them to the top
+      },
+    ];
+
+    const ordered = sortStudentsForAttendance(students, enrollments, classId);
+    expect(ordered.map((s) => s.id)).toEqual([
+      "s-existing-1",
+      "s-existing-2",
+      "s-new-backdated",
+      "s-transferred",
+    ]);
+  });
+
+  it("preserves prior order when multiple students are promoted into a class in the same batch", () => {
+    const classId = "cls-7a";
+    const batchTs = "2026-11-18T07:00:00.000Z";
+    const students = [
+      {
+        id: "s-promoted-2",
+        admissionNo: "ADM-2026-0020",
+        createdAt: "2026-09-05T08:00:00.000Z",
+      },
+      {
+        id: "s-already-there",
+        admissionNo: "ADM-2026-0005",
+        createdAt: "2026-09-01T08:00:00.000Z",
+      },
+      {
+        id: "s-promoted-1",
+        admissionNo: "ADM-2026-0010",
+        createdAt: "2026-09-03T08:00:00.000Z",
+      },
+    ];
+    const enrollments = [
+      { studentId: "s-already-there", classId, enrolledAt: "2026-09-01T08:00:00.000Z" },
+      { studentId: "s-promoted-1", classId, enrolledAt: batchTs },
+      { studentId: "s-promoted-2", classId, enrolledAt: batchTs },
+    ];
+
+    const ordered = sortStudentsForAttendance(students, enrollments, classId);
+    expect(ordered.map((s) => s.id)).toEqual([
+      "s-already-there",
+      "s-promoted-1",
+      "s-promoted-2",
+    ]);
+  });
+});
+
 

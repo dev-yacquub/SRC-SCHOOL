@@ -22,6 +22,7 @@ export function getDatabaseProvider(): DatabaseProvider {
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
   sqlPrisma: PrismaClient | undefined;
+  sqlPrismaUrl: string | undefined;
 };
 
 /** Ensure dev-cached Prisma singletons expose every model after schema updates. */
@@ -34,11 +35,49 @@ function hasAllModels(client: PrismaClient | undefined): client is PrismaClient 
   });
 }
 
+/**
+ * Ensures PostgreSQL connection strings (e.g. Neon serverless pooler) include
+ * sufficient connect_timeout and pool_timeout values so cold starts and multi-IP
+ * DNS failovers do not abort at Prisma's 5s default.
+ */
+function resolveSqlDatasourceUrl(): string | undefined {
+  const raw = (
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    ""
+  ).trim();
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  if (!lower.startsWith("postgres://") && !lower.startsWith("postgresql://")) {
+    return raw;
+  }
+  try {
+    const parsed = new URL(raw);
+    const curConnect = Number(parsed.searchParams.get("connect_timeout") ?? 0);
+    if (!Number.isFinite(curConnect) || curConnect < 15) {
+      parsed.searchParams.set("connect_timeout", "15");
+    }
+    const curPool = Number(parsed.searchParams.get("pool_timeout") ?? 0);
+    if (!Number.isFinite(curPool) || curPool < 25) {
+      parsed.searchParams.set("pool_timeout", "25");
+    }
+    return parsed.toString();
+  } catch {
+    return raw;
+  }
+}
+
 function getSqlClient(): PrismaClient {
-  if (!hasAllModels(globalForPrisma.sqlPrisma)) {
+  const datasourceUrl = resolveSqlDatasourceUrl();
+  if (
+    !hasAllModels(globalForPrisma.sqlPrisma) ||
+    globalForPrisma.sqlPrismaUrl !== datasourceUrl
+  ) {
     globalForPrisma.sqlPrisma = new PrismaClient({
+      ...(datasourceUrl ? { datasources: { db: { url: datasourceUrl } } } : {}),
       log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
     });
+    globalForPrisma.sqlPrismaUrl = datasourceUrl;
   }
   return globalForPrisma.sqlPrisma;
 }

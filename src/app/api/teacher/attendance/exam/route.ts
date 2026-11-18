@@ -3,7 +3,10 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { requireApiRole } from "@/lib/auth";
 import { examAttendanceBatchSchema } from "@/lib/validation";
-import { buildExamSubjectSummaries } from "@/lib/domain";
+import {
+  buildExamSubjectSummaries,
+  sortStudentsForAttendance,
+} from "@/lib/domain";
 import { logAudit } from "@/lib/audit";
 
 type ClassMeta = { id: string; name: string; level: number };
@@ -163,28 +166,50 @@ async function handleGet(req: Request) {
     });
   }
 
-  const [subjects, students, rawRecords] = await Promise.all([
-    getSubjectsForClass(selectedClassId, user.role === "ADMIN"),
-    prisma.student.findMany({
-      where: { classId: selectedClassId, status: "ACTIVE" },
-      orderBy: { fullName: "asc" },
-      select: { id: true, admissionNo: true, fullName: true, gender: true },
-    }),
-    prisma.examAttendance.findMany({
-      where: {
-        classId: selectedClassId,
-        date,
-        examKey: selectedExamId,
-      },
-      select: {
-        id: true,
-        studentId: true,
-        subjectId: true,
-        status: true,
-        note: true,
-      },
-    }),
-  ]);
+  const [subjects, rawStudents, classEnrollments, rawRecords] =
+    await Promise.all([
+      getSubjectsForClass(selectedClassId, user.role === "ADMIN"),
+      prisma.student.findMany({
+        where: { classId: selectedClassId, status: "ACTIVE" },
+        orderBy: [{ createdAt: "asc" }, { admissionNo: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          admissionNo: true,
+          fullName: true,
+          gender: true,
+          createdAt: true,
+        },
+      }),
+      prisma.enrollment.findMany({
+        where: { classId: selectedClassId },
+        select: { studentId: true, classId: true, enrolledAt: true },
+      }),
+      prisma.examAttendance.findMany({
+        where: {
+          classId: selectedClassId,
+          date,
+          examKey: selectedExamId,
+        },
+        select: {
+          id: true,
+          studentId: true,
+          subjectId: true,
+          status: true,
+          note: true,
+        },
+      }),
+    ]);
+
+  const students = sortStudentsForAttendance(
+    rawStudents,
+    classEnrollments,
+    selectedClassId
+  ).map(({ id, admissionNo, fullName, gender }) => ({
+    id,
+    admissionNo,
+    fullName,
+    gender,
+  }));
 
   const records = rawRecords.map((r) => ({
     ...r,

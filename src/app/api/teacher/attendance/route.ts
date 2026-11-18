@@ -5,6 +5,7 @@ import { attendanceBatchSchema } from "@/lib/validation";
 import { logAudit } from "@/lib/audit";
 import {
   getPreviousIsoDate,
+  sortStudentsForAttendance,
   summarizeYesterdayMissingStudents,
 } from "@/lib/domain";
 
@@ -78,15 +79,26 @@ export async function GET(req: Request) {
   }
 
   const [
-    students,
+    rawStudents,
+    classEnrollments,
     studentCounts,
     allClassesDateAttendance,
     yesterdayClassAttendance,
   ] = await Promise.all([
     prisma.student.findMany({
       where: { classId: selectedClassId, status: "ACTIVE" },
-      orderBy: { fullName: "asc" },
-      select: { id: true, admissionNo: true, fullName: true, gender: true },
+      orderBy: [{ createdAt: "asc" }, { admissionNo: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        admissionNo: true,
+        fullName: true,
+        gender: true,
+        createdAt: true,
+      },
+    }),
+    prisma.enrollment.findMany({
+      where: { classId: selectedClassId },
+      select: { studentId: true, classId: true, enrolledAt: true },
     }),
     prisma.student.groupBy({
       by: ["classId"],
@@ -113,6 +125,17 @@ export async function GET(req: Request) {
       },
     }),
   ]);
+
+  const students = sortStudentsForAttendance(
+    rawStudents,
+    classEnrollments,
+    selectedClassId
+  ).map(({ id, admissionNo, fullName, gender }) => ({
+    id,
+    admissionNo,
+    fullName,
+    gender,
+  }));
 
   const studentCountMap = new Map<string, number>();
   for (const row of studentCounts) {

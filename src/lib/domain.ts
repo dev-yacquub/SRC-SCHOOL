@@ -807,3 +807,164 @@ export function deriveExamRollCallStates(
   }
   return out;
 }
+
+export type AttendanceOrderStudentInput = {
+  id: string;
+  admissionNo: string;
+  classId?: string;
+  createdAt?: Date | string | null;
+};
+
+export type ClassEnrollmentTimestamp = {
+  studentId: string;
+  classId: string;
+  enrolledAt: Date | string;
+};
+
+function toTimestampMs(val?: Date | string | number | null): number {
+  if (val === undefined || val === null) return 0;
+  if (typeof val === "number") return Number.isFinite(val) ? val : 0;
+  const t = val instanceof Date ? val.getTime() : Date.parse(val);
+  return Number.isFinite(t) ? t : 0;
+}
+
+/**
+ * Computes when each student effectively joined their current class:
+ * max(student.createdAt, latest Enrollment.enrolledAt for that class).
+ * Ensures both newly registered students (even with backdated admissionDate)
+ * and students transferred/promoted from another class sort to the bottom.
+ */
+export function getStudentClassJoinedTimestampMap(
+  students: AttendanceOrderStudentInput[],
+  enrollments: ClassEnrollmentTimestamp[] = [],
+  defaultClassId?: string
+): Map<string, number> {
+  const latestByStudentClass = new Map<string, number>();
+  for (const e of enrollments) {
+    const ms = toTimestampMs(e.enrolledAt);
+    const key = `${e.studentId}:${e.classId}`;
+    const prev = latestByStudentClass.get(key) ?? 0;
+    if (ms > prev) {
+      latestByStudentClass.set(key, ms);
+    }
+  }
+
+  const joinedMap = new Map<string, number>();
+  for (const s of students) {
+    const createdMs = toTimestampMs(s.createdAt);
+    const cid = s.classId ?? defaultClassId ?? "";
+    const enrolledMs = cid
+      ? (latestByStudentClass.get(`${s.id}:${cid}`) ?? 0)
+      : 0;
+    joinedMap.set(s.id, Math.max(createdMs, enrolledMs));
+  }
+  return joinedMap;
+}
+
+/**
+ * Orders students for attendance rosters so newly registered students and
+ * students transitioned/promoted from another class appear at the bottom.
+ */
+export function sortStudentsForAttendance<T extends AttendanceOrderStudentInput>(
+  students: T[],
+  enrollments: ClassEnrollmentTimestamp[] = [],
+  defaultClassId?: string
+): T[] {
+  const joinedMap = getStudentClassJoinedTimestampMap(
+    students,
+    enrollments,
+    defaultClassId
+  );
+
+  return [...students].sort((a, b) => {
+    const joinedDiff = (joinedMap.get(a.id) ?? 0) - (joinedMap.get(b.id) ?? 0);
+    if (joinedDiff !== 0) return joinedDiff;
+    const createdDiff =
+      toTimestampMs(a.createdAt) - toTimestampMs(b.createdAt);
+    if (createdDiff !== 0) return createdDiff;
+    const admCmp = a.admissionNo.localeCompare(b.admissionNo);
+    if (admCmp !== 0) return admCmp;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+export type AttendanceSearchStudentCandidate = {
+  id: string;
+  admissionNo: string;
+  fullName: string;
+  classId: string;
+  className: string;
+  classLevel: number;
+  guardianPhone?: string | null;
+  createdAt?: Date | string | null;
+  joinedClassAt?: Date | string | number | null;
+};
+
+/**
+ * Universally filters and ranks active students across classes for attendance search.
+ * Requires every whitespace-separated query token to match at least one searchable field.
+ */
+export function filterAttendanceSearchStudents<
+  T extends AttendanceSearchStudentCandidate,
+>(
+  students: T[],
+  query: string,
+  limit = 30
+): { totalMatches: number; matches: T[] } {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) {
+    return { totalMatches: 0, matches: [] };
+  }
+
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) {
+    return { totalMatches: 0, matches: [] };
+  }
+
+  const matched = students.filter((s) => {
+    const primaryHaystack = [s.fullName, s.admissionNo, s.className]
+      .join(" ")
+      .toLowerCase();
+    const phoneHaystack = (s.guardianPhone ?? "").toLowerCase();
+    return tokens.every(
+      (tok) =>
+        primaryHaystack.includes(tok) ||
+        (tok.length >= 3 && phoneHaystack.includes(tok))
+    );
+  });
+
+  const rankOf = (s: T): number => {
+    const adm = s.admissionNo.toLowerCase();
+    const name = s.fullName.toLowerCase();
+    if (adm === normalized) return 0;
+    if (adm.startsWith(normalized)) return 1;
+    if (name.startsWith(normalized)) return 2;
+    if (name.includes(normalized)) return 3;
+    return 4;
+  };
+
+  matched.sort((a, b) => {
+    const rankDiff = rankOf(a) - rankOf(b);
+    if (rankDiff !== 0) return rankDiff;
+    if (a.classLevel !== b.classLevel) return a.classLevel - b.classLevel;
+    const clsCmp = a.className.localeCompare(b.className);
+    if (clsCmp !== 0) return clsCmp;
+    const joinedDiff =
+      toTimestampMs(a.joinedClassAt ?? a.createdAt) -
+      toTimestampMs(b.joinedClassAt ?? b.createdAt);
+    if (joinedDiff !== 0) return joinedDiff;
+    const createdDiff =
+      toTimestampMs(a.createdAt) - toTimestampMs(b.createdAt);
+    if (createdDiff !== 0) return createdDiff;
+    const admCmp = a.admissionNo.localeCompare(b.admissionNo);
+    if (admCmp !== 0) return admCmp;
+    return a.id.localeCompare(b.id);
+  });
+
+  const safeLimit = Math.max(1, Math.trunc(limit));
+  return {
+    totalMatches: matched.length,
+    matches: matched.slice(0, safeLimit),
+  };
+}
+

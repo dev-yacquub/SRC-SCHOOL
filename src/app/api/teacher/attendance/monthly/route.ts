@@ -6,6 +6,7 @@ import { requireApiRole } from "@/lib/auth";
 import {
   getMonthlyAbsenceStats,
   parseYearMonth,
+  sortStudentsForAttendance,
   summarizeAttendance,
 } from "@/lib/domain";
 
@@ -61,27 +62,43 @@ export async function GET(req: Request) {
     });
   }
 
-  const [students, allRecords, punishments] = await Promise.all([
-    prisma.student.findMany({
-      where: { classId: selectedClassId, status: "ACTIVE" },
-      orderBy: { fullName: "asc" },
-      select: { id: true, admissionNo: true, fullName: true },
-    }),
-    prisma.attendance.findMany({
-      where: {
-        classId: selectedClassId,
-        date: { startsWith: `${monthInfo.ym}-` },
-      },
-      orderBy: [{ date: "asc" }, { shift: "asc" }],
-    }),
-    prisma.attendancePunishment.findMany({
-      where: {
-        classId: selectedClassId,
-        month: monthInfo.ym,
-      },
-      select: { studentId: true },
-    }),
-  ]);
+  const [rawStudents, classEnrollments, allRecords, punishments] =
+    await Promise.all([
+      prisma.student.findMany({
+        where: { classId: selectedClassId, status: "ACTIVE" },
+        orderBy: [{ createdAt: "asc" }, { admissionNo: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          admissionNo: true,
+          fullName: true,
+          createdAt: true,
+        },
+      }),
+      prisma.enrollment.findMany({
+        where: { classId: selectedClassId },
+        select: { studentId: true, classId: true, enrolledAt: true },
+      }),
+      prisma.attendance.findMany({
+        where: {
+          classId: selectedClassId,
+          date: { startsWith: `${monthInfo.ym}-` },
+        },
+        orderBy: [{ date: "asc" }, { shift: "asc" }],
+      }),
+      prisma.attendancePunishment.findMany({
+        where: {
+          classId: selectedClassId,
+          month: monthInfo.ym,
+        },
+        select: { studentId: true },
+      }),
+    ]);
+
+  const students = sortStudentsForAttendance(
+    rawStudents,
+    classEnrollments,
+    selectedClassId
+  );
 
   const punishedStudentIds = new Set(punishments.map((p) => p.studentId));
 

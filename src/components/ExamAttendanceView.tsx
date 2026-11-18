@@ -10,9 +10,11 @@ import { Card } from "@/components/ui";
 import {
   CheckCircle2,
   Download,
+  Globe,
   Printer,
   Search,
   Trash2,
+  X,
 } from "lucide-react";
 
 type AttendanceStatus = "PRESENT" | "ABSENT";
@@ -41,6 +43,12 @@ type ExamAttendanceRow = {
 type ExamAttendanceViewProps = {
   initialClassId?: string;
   initialDate?: string;
+  externalTarget?: {
+    classId: string;
+    search: string;
+    token: number;
+  } | null;
+  onUniversalSearch?: (query: string) => void;
   onMessage: (msg: { type: "ok" | "err"; text: string } | null) => void;
 };
 
@@ -87,13 +95,17 @@ async function readJsonSafely(
 export function ExamAttendanceView({
   initialClassId = "",
   initialDate,
+  externalTarget,
+  onUniversalSearch,
   onMessage,
 }: ExamAttendanceViewProps) {
   const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
   const [classes, setClasses] = useState<ClassOption[]>([]);
   const [exams, setExams] = useState<ExamOption[]>([]);
   const [subjects, setSubjects] = useState<SubjectOption[]>([]);
-  const [classId, setClassId] = useState(initialClassId);
+  const [classId, setClassId] = useState(
+    externalTarget?.classId || initialClassId
+  );
   const [examId, setExamId] = useState("");
   const [date, setDate] = useState(initialDate || todayIso);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
@@ -105,7 +117,7 @@ export function ExamAttendanceView({
   const [editedStudentIds, setEditedStudentIds] = useState<Set<string>>(
     () => new Set()
   );
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(externalTarget?.search ?? "");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -186,10 +198,30 @@ export function ExamAttendanceView({
     setLoading(false);
   }
 
+  const handledTargetTokenRef = React.useRef<number | null>(
+    externalTarget?.token ?? null
+  );
+
   useEffect(() => {
-    void loadExamAttendance(initialClassId, initialDate || todayIso, "");
+    void loadExamAttendance(
+      externalTarget?.classId || initialClassId,
+      initialDate || todayIso,
+      ""
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!externalTarget || handledTargetTokenRef.current === externalTarget.token) {
+      return;
+    }
+    handledTargetTokenRef.current = externalTarget.token;
+    setSearch(externalTarget.search);
+    if (externalTarget.classId && externalTarget.classId !== classId) {
+      void loadExamAttendance(externalTarget.classId, date, examId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalTarget?.token]);
 
   function syncRollCallFromSubjects(
     nextSubjectIds: string[],
@@ -514,7 +546,7 @@ export function ExamAttendanceView({
 
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600">
-                Filter Student
+                Filter in Class
               </label>
               <div className="relative">
                 <Search className="pointer-events-none absolute top-3 left-2.5 h-4 w-4 text-slate-400" />
@@ -522,8 +554,18 @@ export function ExamAttendanceView({
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Name or Adm No..."
-                  className="min-h-[42px] w-full rounded-lg border border-slate-300 py-2 pr-3 pl-8 text-base sm:w-auto sm:text-sm"
+                  className="min-h-[42px] w-full rounded-lg border border-slate-300 py-2 pr-8 pl-8 text-base sm:w-auto sm:text-sm"
                 />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    aria-label="Clear class filter"
+                    className="absolute top-2.5 right-2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -845,6 +887,23 @@ export function ExamAttendanceView({
                 </div>
               );
             })}
+            {filteredStudents.length === 0 && (
+              <div className="py-6 text-center text-sm text-slate-500">
+                <p>
+                  No students match &ldquo;{search}&rdquo; in {selectedClassName}.
+                </p>
+                {onUniversalSearch && search.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => onUniversalSearch(search.trim())}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                  >
+                    <Globe className="h-3.5 w-3.5" />
+                    Search &ldquo;{search.trim()}&rdquo; across all classes
+                  </button>
+                )}
+              </div>
+            )}
             <div className="no-print sticky bottom-[68px] z-20 rounded-2xl border border-indigo-200 bg-white/95 p-3 shadow-md backdrop-blur-sm">
               <button
                 type="button"
@@ -949,7 +1008,20 @@ export function ExamAttendanceView({
                       colSpan={5}
                       className="py-6 text-center text-sm text-slate-500"
                     >
-                      No students match &ldquo;{search}&rdquo;.
+                      <p>
+                        No students match &ldquo;{search}&rdquo; in{" "}
+                        {selectedClassName}.
+                      </p>
+                      {onUniversalSearch && search.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => onUniversalSearch(search.trim())}
+                          className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                        >
+                          <Globe className="h-3.5 w-3.5" />
+                          Search &ldquo;{search.trim()}&rdquo; across all classes
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )}

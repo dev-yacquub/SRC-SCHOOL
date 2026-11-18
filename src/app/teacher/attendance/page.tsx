@@ -12,12 +12,18 @@ import {
 import { Card, PageHeader } from "@/components/ui";
 import { ExamAttendanceView } from "@/components/ExamAttendanceView";
 import {
+  QuickMarkSavedPayload,
+  UniversalAttendanceResult,
+  UniversalAttendanceSearch,
+} from "@/components/UniversalAttendanceSearch";
+import {
   ArrowLeft,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
   Download,
+  Globe,
   GraduationCap,
   Printer,
   Search,
@@ -131,7 +137,23 @@ export default function TeacherAttendancePage() {
   const [monthLabel, setMonthLabel] = useState("");
   const [daysInMonth, setDaysInMonth] = useState(30);
   const [monthlyRows, setMonthlyRows] = useState<MonthlyRow[]>([]);
+  const [monthlySearch, setMonthlySearch] = useState("");
   const [punishingStudentId, setPunishingStudentId] = useState<string | null>(null);
+
+  // Universal search & cross-tab jump state
+  const [mobileSearchScope, setMobileSearchScope] = useState<"class" | "all">(
+    "class"
+  );
+  const [universalTrigger, setUniversalTrigger] = useState<{
+    query: string;
+    token: number;
+    surface: "desktop" | "mobile";
+  } | null>(null);
+  const [examJumpTarget, setExamJumpTarget] = useState<{
+    classId: string;
+    search: string;
+    token: number;
+  } | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{
@@ -278,6 +300,7 @@ export default function TeacherAttendancePage() {
   function handleSelectMobileClass(nextClassId: string) {
     setClassId(nextClassId);
     setSearch("");
+    setMobileSearchScope("class");
     setMobileView("rollcall");
     void loadDaily(nextClassId, date, shift);
   }
@@ -321,6 +344,122 @@ export default function TeacherAttendancePage() {
   function handleMonthlyShiftChange(nextShift: "ALL" | "SHIFT_A" | "SHIFT_B") {
     setMonthlyShift(nextShift);
     void loadMonthly(classId, month, nextShift);
+  }
+
+  function triggerUniversalSearch(query: string) {
+    const isDesktop =
+      typeof window !== "undefined" &&
+      window.matchMedia("(min-width: 768px)").matches;
+    if (!isDesktop && tab === "daily" && mobileView === "rollcall") {
+      setMobileSearchScope("all");
+    }
+    setUniversalTrigger({
+      query,
+      token: Date.now(),
+      surface: isDesktop ? "desktop" : "mobile",
+    });
+  }
+
+  function handleJumpToStudent(
+    student: UniversalAttendanceResult,
+    targetTab: "daily" | "monthly" | "exam"
+  ) {
+    setMessage(null);
+    const switchingClass = student.classId !== classId;
+    const switchingTab = targetTab !== tab;
+    setClassId(student.classId);
+
+    if (targetTab === "daily") {
+      setTab("daily");
+      setMobileView("rollcall");
+      setMobileSearchScope("class");
+      setSearch(student.fullName);
+      if (switchingClass || switchingTab) {
+        void loadDaily(student.classId, date, shift);
+      }
+      return;
+    }
+
+    if (targetTab === "monthly") {
+      setTab("monthly");
+      setMonthlySearch(student.fullName);
+      if (switchingClass || switchingTab) {
+        void loadMonthly(student.classId, month, monthlyShift);
+      }
+      return;
+    }
+
+    setTab("exam");
+    setExamJumpTarget({
+      classId: student.classId,
+      search: student.fullName,
+      token: Date.now(),
+    });
+  }
+
+  function handleQuickMarkSaved(payload: QuickMarkSavedPayload) {
+    setMessage({
+      type: "ok",
+      text: `Saved ${formatShiftLabel(payload.shift)} attendance (${payload.status}) for ${payload.fullName} (${payload.className}) on ${payload.date}.`,
+    });
+
+    if (payload.date === date && payload.shift === shift) {
+      if (payload.classId === classId) {
+        setRecords((prev) => ({
+          ...prev,
+          [payload.studentId]: {
+            studentId: payload.studentId,
+            status: payload.status,
+          },
+        }));
+        setAlreadyRecorded(true);
+        setRecordedShifts((prev) => ({ ...prev, [payload.shift]: true }));
+      }
+
+      setOverview((prev) => {
+        const updated = prev.classSummaries.map((c) => {
+          if (c.classId !== payload.classId) return c;
+          let presentCount = c.presentCount;
+          let absentCount = c.absentCount;
+          if (payload.previousStatus === null) {
+            if (payload.status === "PRESENT") presentCount += 1;
+            else absentCount += 1;
+          } else if (
+            payload.previousStatus === "PRESENT" &&
+            payload.status === "ABSENT"
+          ) {
+            presentCount = Math.max(0, presentCount - 1);
+            absentCount += 1;
+          } else if (
+            payload.previousStatus === "ABSENT" &&
+            payload.status === "PRESENT"
+          ) {
+            absentCount = Math.max(0, absentCount - 1);
+            presentCount += 1;
+          }
+          return {
+            ...c,
+            recorded: true,
+            presentCount,
+            absentCount,
+            recordedShifts: { ...c.recordedShifts, [payload.shift]: true },
+          };
+        });
+        return {
+          ...prev,
+          doneCount: updated.filter((c) => c.recorded).length,
+          classSummaries: updated,
+        };
+      });
+    }
+
+    if (
+      tab === "monthly" &&
+      payload.classId === classId &&
+      payload.date.startsWith(`${month}-`)
+    ) {
+      void loadMonthly(classId, month, monthlyShift);
+    }
   }
 
   async function markStudentPunished(studentId: string) {
@@ -482,6 +621,15 @@ export default function TeacherAttendancePage() {
     )
     : students;
 
+  const normalizedMonthlySearch = monthlySearch.trim().toLowerCase();
+  const filteredMonthlyRows = normalizedMonthlySearch
+    ? monthlyRows.filter(
+      (row) =>
+        row.fullName.toLowerCase().includes(normalizedMonthlySearch) ||
+        row.admissionNo.toLowerCase().includes(normalizedMonthlySearch)
+    )
+    : monthlyRows;
+
   const selectedClassName =
     classes.find((c) => c.id === classId)?.name ?? "Selected Class";
 
@@ -606,6 +754,28 @@ export default function TeacherAttendancePage() {
         />
       </div>
 
+      {/* Desktop Universal Attendance Search (All Classes) */}
+      <UniversalAttendanceSearch
+        date={date}
+        shift={shift}
+        month={month}
+        activeTab={tab}
+        externalQuery={
+          universalTrigger?.surface === "desktop"
+            ? universalTrigger.query
+            : undefined
+        }
+        externalQueryToken={
+          universalTrigger?.surface === "desktop"
+            ? universalTrigger.token
+            : undefined
+        }
+        onJumpToStudent={handleJumpToStudent}
+        onQuickMarkSaved={handleQuickMarkSaved}
+        onError={(text) => setMessage({ type: "err", text })}
+        className="mb-4 hidden md:block"
+      />
+
       {/* Desktop Notification */}
       {messageBanner && (
         <div className="hidden md:mb-4 md:block">{messageBanner}</div>
@@ -627,6 +797,26 @@ export default function TeacherAttendancePage() {
               {tab === "monthly" ? "Monthly Register" : "Exam Attendance"}
             </h1>
           </div>
+          <UniversalAttendanceSearch
+            date={date}
+            shift={shift}
+            month={month}
+            activeTab={tab}
+            externalQuery={
+              universalTrigger?.surface === "mobile"
+                ? universalTrigger.query
+                : undefined
+            }
+            externalQueryToken={
+              universalTrigger?.surface === "mobile"
+                ? universalTrigger.token
+                : undefined
+            }
+            onJumpToStudent={handleJumpToStudent}
+            onQuickMarkSaved={handleQuickMarkSaved}
+            onError={(text) => setMessage({ type: "err", text })}
+            className="mb-4"
+          />
           {messageBanner && <div className="mb-4">{messageBanner}</div>}
         </div>
       )}
@@ -689,6 +879,28 @@ export default function TeacherAttendancePage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Mobile Universal Attendance Search */}
+                <UniversalAttendanceSearch
+                  date={date}
+                  shift={shift}
+                  month={month}
+                  activeTab={tab}
+                  externalQuery={
+                    universalTrigger?.surface === "mobile"
+                      ? universalTrigger.query
+                      : undefined
+                  }
+                  externalQueryToken={
+                    universalTrigger?.surface === "mobile"
+                      ? universalTrigger.token
+                      : undefined
+                  }
+                  onJumpToStudent={handleJumpToStudent}
+                  onQuickMarkSaved={handleQuickMarkSaved}
+                  onError={(text) => setMessage({ type: "err", text })}
+                  className="mt-4"
+                />
 
                 {messageBanner && <div className="mt-4">{messageBanner}</div>}
 
@@ -858,14 +1070,74 @@ export default function TeacherAttendancePage() {
 
                 {/* Controls & Roll Call Cards */}
                 <div className="mt-4 space-y-3 pb-4">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-slate-400" />
-                    <input
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Filter by student name or Adm No..."
-                      className="min-h-[42px] w-full rounded-xl border border-slate-200 bg-white py-2 pr-3 pl-9 text-base shadow-2xs focus:border-indigo-500 focus:outline-none"
-                    />
+                  <div className="space-y-2">
+                    <div className="inline-flex rounded-xl border border-slate-200 bg-slate-100 p-0.5 text-xs font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setMobileSearchScope("class")}
+                        className={`rounded-lg px-3 py-1.5 transition ${
+                          mobileSearchScope === "class"
+                            ? "bg-white text-slate-900 shadow-2xs"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        This Class
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMobileSearchScope("all")}
+                        className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 transition ${
+                          mobileSearchScope === "all"
+                            ? "bg-indigo-600 text-white shadow-2xs"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        <Globe className="h-3.5 w-3.5" />
+                        All Classes
+                      </button>
+                    </div>
+
+                    {mobileSearchScope === "all" ? (
+                      <UniversalAttendanceSearch
+                        date={date}
+                        shift={shift}
+                        month={month}
+                        activeTab={tab}
+                        externalQuery={
+                          universalTrigger?.surface === "mobile"
+                            ? universalTrigger.query
+                            : undefined
+                        }
+                        externalQueryToken={
+                          universalTrigger?.surface === "mobile"
+                            ? universalTrigger.token
+                            : undefined
+                        }
+                        onJumpToStudent={handleJumpToStudent}
+                        onQuickMarkSaved={handleQuickMarkSaved}
+                        onError={(text) => setMessage({ type: "err", text })}
+                      />
+                    ) : (
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-slate-400" />
+                        <input
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                          placeholder={`Filter in ${selectedClassName}...`}
+                          className="min-h-[42px] w-full rounded-xl border border-slate-200 bg-white py-2 pr-9 pl-9 text-base shadow-2xs focus:border-indigo-500 focus:outline-none"
+                        />
+                        {search && (
+                          <button
+                            type="button"
+                            onClick={() => setSearch("")}
+                            aria-label="Clear class filter"
+                            className="absolute top-2.5 right-2.5 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -959,9 +1231,25 @@ export default function TeacherAttendancePage() {
                           );
                         })}
                         {filteredStudents.length === 0 && (
-                          <p className="py-6 text-center text-sm text-slate-500">
-                            No students match &ldquo;{search}&rdquo;.
-                          </p>
+                          <div className="py-6 text-center text-sm text-slate-500">
+                            <p>
+                              No students match &ldquo;{search}&rdquo; in{" "}
+                              {selectedClassName}.
+                            </p>
+                            {search.trim() && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  triggerUniversalSearch(search.trim())
+                                }
+                                className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                              >
+                                <Globe className="h-3.5 w-3.5" />
+                                Search &ldquo;{search.trim()}&rdquo; across all
+                                classes
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
 
@@ -1047,7 +1335,7 @@ export default function TeacherAttendancePage() {
               </div>
               <div className="sm:w-auto">
                 <label className="mb-1 block text-xs font-medium text-slate-600">
-                  Filter Student
+                  Filter in Class
                 </label>
                 <div className="relative">
                   <Search className="pointer-events-none absolute top-3 left-2.5 h-4 w-4 text-slate-400" />
@@ -1055,8 +1343,18 @@ export default function TeacherAttendancePage() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Name or Adm No..."
-                    className="min-h-[42px] w-full rounded-lg border border-slate-300 py-2 pr-3 pl-8 text-base sm:w-auto sm:text-sm"
+                    className="min-h-[42px] w-full rounded-lg border border-slate-300 py-2 pr-8 pl-8 text-base sm:w-auto sm:text-sm"
                   />
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      aria-label="Clear class filter"
+                      className="absolute top-2.5 right-2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -1225,7 +1523,23 @@ export default function TeacherAttendancePage() {
                     {filteredStudents.length === 0 && (
                       <tr>
                         <td colSpan={4} className="py-6 text-center text-sm text-slate-500">
-                          No students match &ldquo;{search}&rdquo;.
+                          <p>
+                            No students match &ldquo;{search}&rdquo; in{" "}
+                            {selectedClassName}.
+                          </p>
+                          {search.trim() && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                triggerUniversalSearch(search.trim())
+                              }
+                              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                            >
+                              <Globe className="h-3.5 w-3.5" />
+                              Search &ldquo;{search.trim()}&rdquo; across all
+                              classes
+                            </button>
+                          )}
                         </td>
                       </tr>
                     )}
@@ -1424,6 +1738,30 @@ export default function TeacherAttendancePage() {
                   <option value="SHIFT_B">Shift B Only</option>
                 </select>
               </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  Filter in Class
+                </label>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute top-3 left-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    value={monthlySearch}
+                    onChange={(e) => setMonthlySearch(e.target.value)}
+                    placeholder="Name or Adm No..."
+                    className="min-h-[42px] w-full rounded-lg border border-slate-300 py-2 pr-8 pl-8 text-base sm:w-auto sm:text-sm"
+                  />
+                  {monthlySearch && (
+                    <button
+                      type="button"
+                      onClick={() => setMonthlySearch("")}
+                      aria-label="Clear monthly class filter"
+                      className="absolute top-2.5 right-2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
@@ -1504,7 +1842,7 @@ export default function TeacherAttendancePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {monthlyRows.map((row) => {
+                  {filteredMonthlyRows.map((row) => {
                     const lowAttendance =
                       row.summary.total > 0 && row.summary.ratePercent < 80;
                     const isHighlighted = row.needsPunishmentHighlight;
@@ -1644,6 +1982,32 @@ export default function TeacherAttendancePage() {
                       </tr>
                     );
                   })}
+                  {filteredMonthlyRows.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={daysInMonth + 4}
+                        className="py-6 text-center text-sm text-slate-500"
+                      >
+                        <p>
+                          No students match &ldquo;{monthlySearch}&rdquo; in{" "}
+                          {selectedClassName}.
+                        </p>
+                        {monthlySearch.trim() && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              triggerUniversalSearch(monthlySearch.trim())
+                            }
+                            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                          >
+                            <Globe className="h-3.5 w-3.5" />
+                            Search &ldquo;{monthlySearch.trim()}&rdquo; across
+                            all classes
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1653,6 +2017,8 @@ export default function TeacherAttendancePage() {
         <ExamAttendanceView
           initialClassId={classId}
           initialDate={date}
+          externalTarget={examJumpTarget}
+          onUniversalSearch={triggerUniversalSearch}
           onMessage={setMessage}
         />
       )}
