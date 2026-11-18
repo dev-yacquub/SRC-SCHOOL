@@ -10,6 +10,7 @@ import {
   detectTimetableConflict,
   dollarsToCents,
   filterAttendanceSearchStudents,
+  filterStudentDirectoryRecords,
   filterUnbilledStudentFeeItems,
   formatCurrency,
   formatPaymentAllocationsSummary,
@@ -619,7 +620,7 @@ describe("Exam attendance helpers and validation", () => {
       hasMixedStatuses: true,
     });
     expect(derived.s3).toEqual({
-      status: "PRESENT",
+      status: "ABSENT",
       recordedCount: 0,
       hasMixedStatuses: false,
     });
@@ -967,6 +968,91 @@ describe("attendance roster ordering for new and transitioned students", () => {
       "s-promoted-1",
       "s-promoted-2",
     ]);
+  });
+});
+
+describe("student directory search filtering", () => {
+  const directory = [
+    {
+      admissionNo: "ADM-2026-0371",
+      fullName: "Salmaan Xassan Warsame",
+      guardianName: "Aamina Ciise",
+      guardianPhone: "252 63 234567890",
+      address: "Hargeisa",
+      class: { name: "Form 1D" },
+      user: { username: "adm-2026-0371" },
+    },
+    {
+      admissionNo: "ADM-2026-0369",
+      fullName: "Cabdixakiin Maxamed Axmed",
+      guardianName: "Fadumo Ali",
+      guardianPhone: "+25263 3456787543",
+      address: "Mogadishu",
+      class: { name: "Form 1D" },
+      user: { username: "adm-2026-0369" },
+    },
+    {
+      admissionNo: "ADM-2026-0121",
+      fullName: "Yaasiin Maxamed Axmed",
+      guardianName: "Xasan Warsame",
+      guardianPhone: "+25263 0000120",
+      address: "Burco",
+      class: { name: "Form 1F" },
+      user: { username: "adm-2026-0121" },
+    },
+  ];
+
+  it("searches case-insensitively across names, admission numbers, usernames, classes, guardians, and spaced phones", () => {
+    expect(
+      filterStudentDirectoryRecords(directory, "salmaan").map((s) => s.admissionNo)
+    ).toEqual(["ADM-2026-0371"]);
+
+    expect(
+      filterStudentDirectoryRecords(directory, "adm-2026-0369").map(
+        (s) => s.admissionNo
+      )
+    ).toEqual(["ADM-2026-0369"]);
+
+    expect(
+      filterStudentDirectoryRecords(directory, "@adm-2026-0371").map(
+        (s) => s.admissionNo
+      )
+    ).toEqual(["ADM-2026-0371"]);
+
+    // Skips middle name cleanly
+    expect(
+      filterStudentDirectoryRecords(directory, "salmaan warsame").map(
+        (s) => s.admissionNo
+      )
+    ).toEqual(["ADM-2026-0371"]);
+
+    // Combines class + name tokens
+    expect(
+      filterStudentDirectoryRecords(directory, "form 1f maxamed").map(
+        (s) => s.admissionNo
+      )
+    ).toEqual(["ADM-2026-0121"]);
+
+    // Space-insensitive phone search
+    expect(
+      filterStudentDirectoryRecords(directory, "2526323456").map(
+        (s) => s.admissionNo
+      )
+    ).toEqual(["ADM-2026-0371"]);
+  });
+
+  it("ranks direct name and admission number matches above guardian-name matches", () => {
+    // Both 0371 (student surname Warsame) and 0121 (guardian Xasan Warsame) match "warsame"
+    const res = filterStudentDirectoryRecords(directory, "warsame");
+    expect(res.map((s) => s.admissionNo)).toEqual([
+      "ADM-2026-0371",
+      "ADM-2026-0121",
+    ]);
+
+    // Typing short admission suffix ranks exact suffix first
+    expect(
+      filterStudentDirectoryRecords(directory, "0369").map((s) => s.admissionNo)
+    ).toEqual(["ADM-2026-0369"]);
   });
 });
 

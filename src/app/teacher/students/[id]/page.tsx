@@ -3,8 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
-import { calculateLetterGrade, summarizeAttendance } from "@/lib/domain";
+import {
+  calculateLetterGrade,
+  getLateArrivalStats,
+  summarizeAttendance,
+} from "@/lib/domain";
 import { Card, PageHeader, StatCard, StatusBadge } from "@/components/ui";
+import { StudentLateReportCard } from "@/components/StudentLateReportCard";
 import { ArrowLeft, Printer } from "lucide-react";
 
 export default async function TeacherStudentAcademicProfilePage({
@@ -30,6 +35,9 @@ export default async function TeacherStudentAcademicProfilePage({
         },
         attendance: {
           orderBy: { date: "desc" },
+        },
+        lateArrivals: {
+          orderBy: [{ date: "desc" }, { shift: "desc" }],
         },
         marks: {
           include: {
@@ -83,6 +91,7 @@ export default async function TeacherStudentAcademicProfilePage({
   }
 
   const attSummary = summarizeAttendance(student.attendance);
+  const lateStats = getLateArrivalStats(student.lateArrivals);
   const remarkByExam = new Map(reportRemarks.map((r) => [r.examId, r]));
 
   const marksByExam = new Map<
@@ -134,7 +143,7 @@ export default async function TeacherStudentAcademicProfilePage({
         }
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
         <StatCard
           label="Attendance Rate"
           value={attSummary.total > 0 ? `${attSummary.ratePercent}%` : "N/A"}
@@ -146,6 +155,22 @@ export default async function TeacherStudentAcademicProfilePage({
           value={attSummary.total}
           hint="Recorded daily roll calls"
           tone="slate"
+        />
+        <StatCard
+          label="Late Days"
+          value={lateStats.totalLateDays}
+          hint={
+            lateStats.totalLateShifts > 0
+              ? `${lateStats.unpunishedLateDays} unpunished · ${lateStats.totalLateShifts} shifts`
+              : "No late arrivals"
+          }
+          tone={
+            lateStats.needsPunishmentHighlight
+              ? "rose"
+              : lateStats.unpunishedLateDays > 0
+                ? "amber"
+                : "emerald"
+          }
         />
         <StatCard
           label="Exams Recorded"
@@ -250,6 +275,11 @@ export default async function TeacherStudentAcademicProfilePage({
       </div>
 
       <div className="mt-6 space-y-6">
+        <StudentLateReportCard
+          records={student.lateArrivals}
+          showManageLink={isAdmin}
+        />
+
         <Card title="Academic Performance & Report Cards">
           {marksByExam.size === 0 ? (
             <p className="text-sm text-slate-500">No exam marks recorded yet.</p>

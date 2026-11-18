@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Card, PageHeader, StatusBadge } from "@/components/ui";
-import { Search, Pencil, Printer, Trash2, X, Download, Eye, Users } from "lucide-react";
+import { Search, Pencil, Printer, Trash2, X, Download, Eye, Users, Loader2 } from "lucide-react";
 
 type StudentRow = {
   id: string;
@@ -43,8 +43,13 @@ export default function AdmissionStudentsPage() {
   const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const loadStudents = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     const params = new URLSearchParams();
     if (q) params.set("q", q);
@@ -54,15 +59,26 @@ export default function AdmissionStudentsPage() {
     params.set("page", String(page));
     params.set("limit", "20");
 
-    const res = await fetch(`/api/admission/students?${params.toString()}`);
-    if (res.ok) {
-      const data = await res.json();
-      setStudents(data.students ?? []);
-      setTotal(data.total ?? 0);
-      setTotalPages(data.totalPages ?? 1);
+    try {
+      const res = await fetch(`/api/admission/students?${params.toString()}`, {
+        signal: controller.signal,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setStudents(data.students ?? []);
+        setTotal(data.total ?? 0);
+        setTotalPages(data.totalPages ?? 1);
+      }
+      setLoading(false);
+    } catch (err) {
+      if ((err as { name?: string })?.name === "AbortError") return;
+      setLoading(false);
     }
-    setLoading(false);
   }, [q, classFilter, statusFilter, genderFilter, page]);
+
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
@@ -233,14 +249,39 @@ export default function AdmissionStudentsPage() {
           className="grid gap-3 sm:grid-cols-6"
         >
           <div className="relative sm:col-span-2">
-            <Search className="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
+            {loading ? (
+              <Loader2 className="pointer-events-none absolute top-2.5 left-3 h-4 w-4 animate-spin text-indigo-500" />
+            ) : (
+              <Search className="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
+            )}
             <input
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search name, Adm No, guardian..."
-              className="w-full rounded-lg border border-slate-300 py-2 pr-3 pl-9 text-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setSearchInput("");
+                  setQ("");
+                  setPage(1);
+                }
+              }}
+              placeholder="Search name, Adm No, @username, class, guardian, phone..."
+              className="w-full rounded-lg border border-slate-300 py-2 pr-8 pl-9 text-sm focus:border-indigo-500 focus:outline-none"
             />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchInput("");
+                  setQ("");
+                  setPage(1);
+                }}
+                aria-label="Clear search"
+                className="absolute top-2 right-2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           <select
             value={classFilter}
@@ -314,10 +355,27 @@ export default function AdmissionStudentsPage() {
         title={`Students (${total})`}
         subtitle={`Showing page ${page} of ${totalPages}`}
       >
-        {loading ? (
+        {loading && students.length === 0 ? (
           <p className="text-sm text-slate-500">Loading students...</p>
         ) : students.length === 0 ? (
-          <p className="text-sm text-slate-500">No students match the selected filters.</p>
+          <div className="py-4 text-center text-sm text-slate-500">
+            <p>
+              No students match
+              {q ? <> &ldquo;{q}&rdquo;</> : ""} with the selected filters.
+            </p>
+            {q && classFilter && (
+              <button
+                type="button"
+                onClick={() => {
+                  setClassFilter("");
+                  setPage(1);
+                }}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+              >
+                Search &ldquo;{q}&rdquo; across All Classes
+              </button>
+            )}
+          </div>
         ) : (
           <>
             <div className="overflow-x-auto">

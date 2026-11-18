@@ -7,10 +7,12 @@ import { getSchoolContext } from "@/lib/shell-context";
 import {
   calculateLetterGrade,
   formatCurrency,
+  getLateArrivalStats,
   summarizeAttendance,
 } from "@/lib/domain";
 import { Card, PageHeader, StatCard, StatusBadge } from "@/components/ui";
 import { StudentAccountActions } from "@/components/StudentAccountActions";
+import { StudentLateReportCard } from "@/components/StudentLateReportCard";
 import { Printer } from "lucide-react";
 
 export default async function Student360ProfilePage({
@@ -45,6 +47,9 @@ export default async function Student360ProfilePage({
         attendance: {
           orderBy: { date: "desc" },
         },
+        lateArrivals: {
+          orderBy: [{ date: "desc" }, { shift: "desc" }],
+        },
         marks: {
           include: {
             exam: { include: { term: { select: { name: true } } } },
@@ -65,6 +70,7 @@ export default async function Student360ProfilePage({
   if (!student) notFound();
 
   const attSummary = summarizeAttendance(student.attendance);
+  const lateStats = getLateArrivalStats(student.lateArrivals);
   const totalBilled = student.invoices.reduce((s, i) => s + i.totalCents, 0);
   const totalPaid = student.invoices.reduce((s, i) => s + i.paidCents, 0);
   const balance = totalBilled - totalPaid;
@@ -126,7 +132,7 @@ export default async function Student360ProfilePage({
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="Status"
           value={student.status}
@@ -138,6 +144,22 @@ export default async function Student360ProfilePage({
           value={attSummary.total > 0 ? `${attSummary.ratePercent}%` : "—"}
           hint={`${attSummary.present}P · ${attSummary.absent}A`}
           tone="indigo"
+        />
+        <StatCard
+          label="Late Days"
+          value={lateStats.totalLateDays}
+          hint={
+            lateStats.totalLateShifts > 0
+              ? `${lateStats.unpunishedLateDays} unpunished · ${lateStats.totalLateShifts} shifts`
+              : "No late arrivals"
+          }
+          tone={
+            lateStats.needsPunishmentHighlight
+              ? "rose"
+              : lateStats.unpunishedLateDays > 0
+                ? "amber"
+                : "emerald"
+          }
         />
         <StatCard
           label="Exams Taken"
@@ -288,6 +310,12 @@ export default async function Student360ProfilePage({
           )}
         </Card>
       </div>
+
+      <StudentLateReportCard
+        records={student.lateArrivals}
+        showManageLink
+        className="mt-6"
+      />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Card title="Exam Results Summary">

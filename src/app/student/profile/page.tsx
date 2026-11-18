@@ -2,6 +2,7 @@ import React from "react";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { Card, PageHeader, StatusBadge } from "@/components/ui";
+import { StudentLateReportCard } from "@/components/StudentLateReportCard";
 
 export default async function StudentProfilePage() {
   const user = await requireRole(["STUDENT"]);
@@ -10,6 +11,9 @@ export default async function StudentProfilePage() {
     include: {
       class: { include: { academicYear: true } },
       user: { select: { username: true } },
+      lateArrivals: {
+        orderBy: [{ date: "desc" }, { shift: "desc" }],
+      },
     },
   });
 
@@ -85,6 +89,11 @@ export default async function StudentProfilePage() {
           </div>
         </dl>
       </Card>
+
+      <StudentLateReportCard
+        records={student.lateArrivals}
+        className="mt-6 max-w-2xl"
+      />
     </div>
   );
 }

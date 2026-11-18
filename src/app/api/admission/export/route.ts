@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { requireApiRole } from "@/lib/auth";
+import { filterStudentDirectoryRecords } from "@/lib/domain";
 
 const VALID_STATUSES = new Set([
   "ACTIVE",
@@ -16,36 +17,30 @@ export async function GET(req: Request) {
   if (error) return error;
 
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q")?.trim().toLowerCase().slice(0, 100) ?? "";
+  const q = searchParams.get("q")?.trim().slice(0, 100) ?? "";
   const classId = searchParams.get("classId") ?? "";
   const statusRaw = searchParams.get("status") ?? "";
   const genderRaw = searchParams.get("gender") ?? "";
   const status = VALID_STATUSES.has(statusRaw) ? statusRaw : "";
   const gender = VALID_GENDERS.has(genderRaw) ? genderRaw : "";
 
-  const students = await prisma.student.findMany({
+  const allStudents = await prisma.student.findMany({
     where: {
       ...(classId ? { classId } : {}),
       ...(status ? { status: status as never } : {}),
       ...(gender ? { gender: gender as never } : {}),
-      ...(q
-        ? {
-            OR: [
-              { fullName: { contains: q } },
-              { admissionNo: { contains: q } },
-              { guardianName: { contains: q } },
-              { guardianPhone: { contains: q } },
-            ],
-          }
-        : {}),
     },
     include: {
       class: { select: { name: true, academicYear: { select: { name: true } } } },
       user: { select: { username: true, isActive: true } },
     },
     orderBy: [{ class: { level: "asc" } }, { fullName: "asc" }],
-    take: 1000,
+    ...(q ? {} : { take: 1000 }),
   });
+
+  const students = q
+    ? filterStudentDirectoryRecords(allStudents, q).slice(0, 1000)
+    : allStudents;
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Student Directory");

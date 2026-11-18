@@ -6,7 +6,11 @@ import {
   requireApiRole,
 } from "@/lib/auth";
 import { studentCreateSchema } from "@/lib/validation";
-import { dollarsToCents, generateSequenceCode } from "@/lib/domain";
+import {
+  dollarsToCents,
+  filterStudentDirectoryRecords,
+  generateSequenceCode,
+} from "@/lib/domain";
 import { logAudit } from "@/lib/audit";
 
 const VALID_STATUSES = new Set([
@@ -22,7 +26,7 @@ export async function GET(req: Request) {
   if (error) return error;
 
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q")?.trim().toLowerCase().slice(0, 100) ?? "";
+  const q = searchParams.get("q")?.trim().slice(0, 100) ?? "";
   const classId = searchParams.get("classId") ?? "";
   const statusRaw = searchParams.get("status") ?? "";
   const genderRaw = searchParams.get("gender") ?? "";
@@ -32,7 +36,7 @@ export async function GET(req: Request) {
   const pageParam = searchParams.get("page");
   const limitParam = searchParams.get("limit");
 
-  const where = {
+  const baseWhere = {
     ...(classId ? { classId } : {}),
     ...(status ? { status: status as never } : {}),
     ...(gender ? { gender: gender as never } : {}),
@@ -41,16 +45,6 @@ export async function GET(req: Request) {
       : usesBusParam === "false"
         ? { usesBus: false }
         : {}),
-    ...(q
-      ? {
-          OR: [
-            { fullName: { contains: q } },
-            { admissionNo: { contains: q } },
-            { guardianName: { contains: q } },
-            { guardianPhone: { contains: q } },
-          ],
-        }
-      : {}),
   };
 
   const limit = limitParam
@@ -58,10 +52,34 @@ export async function GET(req: Request) {
     : 500;
   const page = pageParam ? Math.max(1, Number(pageParam) || 1) : 1;
 
+  if (q) {
+    const candidates = await prisma.student.findMany({
+      where: baseWhere,
+      include: {
+        class: { select: { id: true, name: true, level: true } },
+        user: { select: { username: true, isActive: true, mustChangePassword: true } },
+      },
+      orderBy: [{ admissionNo: "desc" }],
+    });
+    const matched = filterStudentDirectoryRecords(candidates, q);
+    const total = matched.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const safePage = Math.min(page, totalPages);
+    const students = matched.slice((safePage - 1) * limit, safePage * limit);
+
+    return NextResponse.json({
+      students,
+      total,
+      page: safePage,
+      limit,
+      totalPages,
+    });
+  }
+
   const [total, students] = await Promise.all([
-    prisma.student.count({ where }),
+    prisma.student.count({ where: baseWhere }),
     prisma.student.findMany({
-      where,
+      where: baseWhere,
       include: {
         class: { select: { id: true, name: true, level: true } },
         user: { select: { username: true, isActive: true, mustChangePassword: true } },

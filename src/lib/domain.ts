@@ -751,7 +751,7 @@ export function buildExamSubjectSummaries(
 
 /**
  * Derives per-student roll call state across one or more selected exam subjects.
- * Defaults to PRESENT when unrecorded and ABSENT if any selected subject is marked ABSENT.
+ * Defaults to ABSENT when unrecorded and ABSENT if any selected subject is marked ABSENT.
  */
 export function deriveExamRollCallStates(
   studentIds: string[],
@@ -790,7 +790,7 @@ export function deriveExamRollCallStates(
     const subjMap = byStudent.get(studentId);
     if (!subjMap || subjMap.size === 0) {
       out[studentId] = {
-        status: "PRESENT",
+        status: "ABSENT",
         recordedCount: 0,
         hasMixedStatuses: false,
       };
@@ -967,4 +967,106 @@ export function filterAttendanceSearchStudents<
     matches: matched.slice(0, safeLimit),
   };
 }
+
+export type StudentDirectorySearchCandidate = {
+  admissionNo: string;
+  fullName: string;
+  guardianName?: string | null;
+  guardianPhone?: string | null;
+  address?: string | null;
+  class?: { name?: string | null } | null;
+  user?: { username?: string | null } | null;
+};
+
+/**
+ * Case-insensitive, multi-token student directory search & relevance ranking.
+ * Works identically across Postgres, SQLite, and Firestore without case-sensitivity bugs.
+ * Supports full/partial names (even skipping middle names), admission numbers,
+ * @usernames, class names, guardian names, space-insensitive phone numbers, and addresses.
+ */
+export function filterStudentDirectoryRecords<
+  T extends StudentDirectorySearchCandidate,
+>(students: T[], query: string): T[] {
+  const normalized = query.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!normalized) return students;
+
+  const rawTokens = normalized.split(" ").filter(Boolean);
+  if (rawTokens.length === 0) return students;
+
+  const cleanNormalized = normalized.startsWith("@")
+    ? normalized.slice(1)
+    : normalized;
+  const queryDigits = normalized.replace(/\D+/g, "");
+
+  const matched = students.filter((s) => {
+    const fullName = (s.fullName ?? "").toLowerCase();
+    const admissionNo = (s.admissionNo ?? "").toLowerCase();
+    const username = (s.user?.username ?? "").toLowerCase();
+    const className = (s.class?.name ?? "").toLowerCase();
+    const guardianName = (s.guardianName ?? "").toLowerCase();
+    const guardianPhoneRaw = (s.guardianPhone ?? "").toLowerCase();
+    const guardianPhoneDigits = guardianPhoneRaw.replace(/\D+/g, "");
+    const address = (s.address ?? "").toLowerCase();
+
+    const textHaystack = [
+      fullName,
+      admissionNo,
+      username,
+      className,
+      guardianName,
+      address,
+    ].join(" ");
+
+    // If the entire query looks like a phone number with spaces/punctuation, check phone digits directly
+    if (
+      queryDigits.length >= 4 &&
+      /^[\d+\s()-]+$/.test(normalized) &&
+      guardianPhoneDigits.includes(queryDigits)
+    ) {
+      return true;
+    }
+
+    return rawTokens.every((rawTok) => {
+      const tok = rawTok.startsWith("@") ? rawTok.slice(1) : rawTok;
+      if (!tok) return true;
+      if (textHaystack.includes(tok)) return true;
+      if (tok.length >= 3 && guardianPhoneRaw.includes(tok)) return true;
+      const tokDigits = tok.replace(/\D+/g, "");
+      if (tokDigits.length >= 3 && guardianPhoneDigits.includes(tokDigits)) {
+        return true;
+      }
+      return false;
+    });
+  });
+
+  const rankOf = (s: T): number => {
+    const adm = (s.admissionNo ?? "").toLowerCase();
+    const username = (s.user?.username ?? "").toLowerCase();
+    const name = (s.fullName ?? "").toLowerCase();
+    if (adm === cleanNormalized || (username && username === cleanNormalized)) {
+      return 0;
+    }
+    if (
+      adm.startsWith(cleanNormalized) ||
+      adm.endsWith(cleanNormalized) ||
+      (username && username.startsWith(cleanNormalized))
+    ) {
+      return 1;
+    }
+    if (name.startsWith(cleanNormalized)) return 2;
+    if (name.includes(cleanNormalized)) return 3;
+    const allTokensInName = rawTokens.every((t) =>
+      name.includes(t.startsWith("@") ? t.slice(1) : t)
+    );
+    if (allTokensInName) return 4;
+    return 5;
+  };
+
+  return [...matched].sort((a, b) => {
+    const rankDiff = rankOf(a) - rankOf(b);
+    if (rankDiff !== 0) return rankDiff;
+    return b.admissionNo.localeCompare(a.admissionNo);
+  });
+}
+
 

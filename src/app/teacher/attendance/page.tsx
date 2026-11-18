@@ -222,7 +222,7 @@ export default function TeacherAttendancePage() {
         );
         map[s.id] = {
           studentId: s.id,
-          status: existing?.status ?? "PRESENT",
+          status: existing?.status ?? "ABSENT",
         };
       }
       setRecords(map);
@@ -532,7 +532,7 @@ export default function TeacherAttendancePage() {
           (s) =>
             records[s.id] ?? {
               studentId: s.id,
-              status: "PRESENT",
+              status: "ABSENT",
             }
         ),
       }),
@@ -546,7 +546,7 @@ export default function TeacherAttendancePage() {
     setAlreadyRecorded(true);
     setRecordedShifts((prev) => ({ ...prev, [shift]: true }));
     const savedPresent = students.filter(
-      (s) => (records[s.id]?.status ?? "PRESENT") !== "ABSENT"
+      (s) => (records[s.id]?.status ?? "ABSENT") === "PRESENT"
     ).length;
     const savedAbsent = students.length - savedPresent;
     setOverview((prev) => {
@@ -608,7 +608,7 @@ export default function TeacherAttendancePage() {
   }
 
   const recordList = students.map(
-    (s) => records[s.id] ?? { studentId: s.id, status: "PRESENT" as AttendanceStatus }
+    (s) => records[s.id] ?? { studentId: s.id, status: "ABSENT" as AttendanceStatus }
   );
   const dailySummary = summarizeAttendance(recordList);
 
@@ -1185,7 +1185,7 @@ export default function TeacherAttendancePage() {
                         {filteredStudents.map((s, idx) => {
                           const rec = records[s.id] ?? {
                             studentId: s.id,
-                            status: "PRESENT" as AttendanceStatus,
+                            status: "ABSENT" as AttendanceStatus,
                           };
                           return (
                             <div
@@ -1480,7 +1480,7 @@ export default function TeacherAttendancePage() {
                     {filteredStudents.map((s, idx) => {
                       const rec = records[s.id] ?? {
                         studentId: s.id,
-                        status: "PRESENT" as AttendanceStatus,
+                        status: "ABSENT" as AttendanceStatus,
                       };
                       return (
                         <tr key={s.id} className="hover:bg-slate-50/70">
@@ -1626,7 +1626,7 @@ export default function TeacherAttendancePage() {
                       <div className="max-h-[55vh] divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
                         {yesterday.missingStudents.map((stu, idx) => {
                           const todayStatus =
-                            records[stu.id]?.status ?? "PRESENT";
+                            records[stu.id]?.status ?? "ABSENT";
                           return (
                             <div
                               key={stu.id}

@@ -178,7 +178,7 @@ export function ExamAttendanceView({
       );
       const nextStatusMap: Record<string, AttendanceStatus> = {};
       for (const s of nextStudents) {
-        nextStatusMap[s.id] = derived[s.id]?.status ?? "PRESENT";
+        nextStatusMap[s.id] = derived[s.id]?.status ?? "ABSENT";
       }
 
       setClasses(nextClasses);
@@ -236,7 +236,7 @@ export function ExamAttendanceView({
       const next = { ...prev };
       for (const s of students) {
         if (!editedSet.has(s.id)) {
-          next[s.id] = derived[s.id]?.status ?? "PRESENT";
+          next[s.id] = derived[s.id]?.status ?? "ABSENT";
         }
       }
       return next;
@@ -330,7 +330,7 @@ export function ExamAttendanceView({
   const summary = useMemo(
     () =>
       summarizeAttendance(
-        students.map((s) => ({ status: statusMap[s.id] ?? "PRESENT" }))
+        students.map((s) => ({ status: statusMap[s.id] ?? "ABSENT" }))
       ),
     [students, statusMap]
   );
@@ -371,7 +371,7 @@ export function ExamAttendanceView({
           subjectIds: selectedSubjectIds,
           records: students.map((s) => ({
             studentId: s.id,
-            status: statusMap[s.id] ?? "PRESENT",
+            status: statusMap[s.id] ?? "ABSENT",
           })),
         }),
       });
@@ -821,7 +821,7 @@ export function ExamAttendanceView({
           {/* Mobile Roll Call Cards */}
           <div className="space-y-3 md:hidden">
             {filteredStudents.map((s, idx) => {
-              const status = statusMap[s.id] ?? "PRESENT";
+              const status = statusMap[s.id] ?? "ABSENT";
               const dayBadges = studentRecordedByDate.get(s.id) ?? [];
               const mixed =
                 !editedStudentIds.has(s.id) &&
@@ -932,7 +932,7 @@ export function ExamAttendanceView({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredStudents.map((s, idx) => {
-                  const status = statusMap[s.id] ?? "PRESENT";
+                  const status = statusMap[s.id] ?? "ABSENT";
                   const dayBadges = studentRecordedByDate.get(s.id) ?? [];
                   const mixed =
                     !editedStudentIds.has(s.id) &&

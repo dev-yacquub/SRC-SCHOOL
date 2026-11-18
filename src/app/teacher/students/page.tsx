@@ -2,7 +2,10 @@ import React from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
-import { summarizeAttendance } from "@/lib/domain";
+import {
+  filterStudentDirectoryRecords,
+  summarizeAttendance,
+} from "@/lib/domain";
 import { Card, PageHeader } from "@/components/ui";
 
 export default async function TeacherStudentsPage({
@@ -45,7 +48,7 @@ export default async function TeacherStudentsPage({
     ? classIdParam
     : "";
 
-  const [exams, students] = await Promise.all([
+  const [exams, allStudents] = await Promise.all([
     prisma.exam.findMany({
       include: { term: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
@@ -55,16 +58,6 @@ export default async function TeacherStudentsPage({
         where: {
           status: "ACTIVE",
           classId: selectedClassId ? selectedClassId : { in: allowedClassIds },
-          ...(q
-            ? {
-              OR: [
-                { fullName: { contains: q } },
-                { admissionNo: { contains: q } },
-                { guardianName: { contains: q } },
-                { guardianPhone: { contains: q } },
-              ],
-            }
-            : {}),
         },
         include: {
           class: { select: { id: true, name: true, level: true } },
@@ -74,6 +67,10 @@ export default async function TeacherStudentsPage({
       })
       : [],
   ]);
+
+  const students = q
+    ? filterStudentDirectoryRecords(allStudents, q)
+    : allStudents;
 
   const selectedExam = exams.find((e) => e.id === examIdParam) ?? exams[0] ?? null;
 
